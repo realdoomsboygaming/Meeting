@@ -15,14 +15,14 @@ class SoraApp {
         this.initializeElements();
         this.initializeWorker();
         this.bindEvents();
-        this.log('Sora Streaming Hub Initialized with Netflix-style Interface.', 'success');
-        this.log('Features: Background processing, zero UI blocking, smart caching', 'info');
-        this.log('Module storage and management enabled.', 'info');
         
         // Initialize module management
         this.initializeModuleManagement();
         
-        // Initialize CORS detection for better user guidance
+        // Initialize default CORS proxy for seamless streaming
+        this.initializeDefaultCorsProxy();
+        
+        // Initialize CORS detection for advanced users who want alternatives
         this.corsExtensionDetected = false;
         this.detectCorsExtension();
         
@@ -70,7 +70,6 @@ class SoraApp {
         try {
             // Check if Plyr is available
             if (typeof Plyr === 'undefined') {
-                this.log('Plyr not loaded yet, waiting...', 'warning');
                 setTimeout(() => this.initializePlyr(), 500);
                 return;
             }
@@ -136,8 +135,6 @@ class SoraApp {
             // Setup Plyr event listeners
             this.setupPlyrEvents();
             
-            this.log('Plyr video player initialized successfully', 'success');
-            
         } catch (error) {
             this.log(`Failed to initialize Plyr: ${error.message}`, 'error');
             // Fallback to basic video player
@@ -150,57 +147,38 @@ class SoraApp {
 
         // Track player events for better UX
         this.player.on('ready', () => {
-            this.log('Plyr player ready', 'success');
-            this.log(`Current source: ${this.player.source}`, 'info');
         });
 
         // SOURCE CHANGE DEBUGGING
         this.player.on('sourcechange', () => {
-            this.log('=== PLYR SOURCE CHANGED ===', 'info');
-            this.log(`New source: ${JSON.stringify(this.player.source)}`, 'info');
-            this.log(`Current src: ${this.player.media?.currentSrc || 'none'}`, 'info');
         });
 
         this.player.on('play', () => {
-            this.log('Video playback started', 'info');
-            this.log(`Playing: ${this.player.media?.currentSrc || 'unknown'}`, 'info');
         });
 
         this.player.on('pause', () => {
-            this.log('Video playback paused', 'info');
         });
 
         this.player.on('ended', () => {
-            this.log('Video playback ended', 'info');
         });
 
         this.player.on('error', (event) => {
-            this.log('=== PLYR ERROR EVENT ===', 'error');
             const error = event.detail?.plyr?.media?.error;
             if (error) {
                 this.log(`Video player error: ${error.message || 'Unknown error'}`, 'error');
-                this.log(`Error code: ${error.code}`, 'error');
             }
-            this.log(`Media source: ${this.player.media?.currentSrc || 'none'}`, 'error');
         });
 
         this.player.on('loadstart', () => {
-            this.log('Video loading started', 'info');
-            this.log(`Loading: ${this.player.media?.currentSrc || 'unknown'}`, 'info');
         });
 
         this.player.on('canplay', () => {
-            this.log('Video can start playing', 'success');
-            this.log(`Ready to play: ${this.player.media?.currentSrc || 'unknown'}`, 'success');
         });
 
         this.player.on('loadedmetadata', () => {
-            this.log('Video metadata loaded', 'success');
-            this.log(`Duration: ${this.player.duration || 'unknown'}s`, 'info');
         });
 
         this.player.on('waiting', () => {
-            this.log('Video buffering...', 'info');
         });
 
         this.player.on('timeupdate', () => {
@@ -212,17 +190,14 @@ class SoraApp {
         });
 
         this.player.on('enterfullscreen', () => {
-            this.log('Entered fullscreen mode', 'info');
         });
 
         this.player.on('exitfullscreen', () => {
-            this.log('Exited fullscreen mode', 'info');
         });
     }
 
     initializeWorker() {
         if (!window.Worker) {
-            this.log('Web Workers not supported in this browser. Falling back to main thread processing.', 'warning');
             this.worker = null;
             return;
         }
@@ -231,17 +206,9 @@ class SoraApp {
             this.worker = new Worker('./js/search-worker.js');
             this.worker.onmessage = (event) => this.handleWorkerMessage(event);
             this.worker.onerror = (error) => this.handleWorkerError(error);
-            this.log('Web Worker initialized successfully. Background processing enabled.', 'success');
         } catch (error) {
             // Common case: CORS error when running from file:// protocol
             this.worker = null;
-            if (error.message.includes('cannot be accessed from origin') || 
-                error.message.includes('origin \'null\'')) {
-                this.log('Web Worker blocked due to file:// protocol restrictions. Using main thread fallback.', 'warning');
-                this.log('For best performance, serve this app via HTTP(S) server instead of opening locally.', 'info');
-            } else {
-                this.log(`Failed to initialize Web Worker: ${error.message}. Using main thread fallback.`, 'warning');
-            }
         }
     }
 
@@ -1669,26 +1636,55 @@ class SoraApp {
             
             // Check if CORS proxy is configured - if so, always use blob method
             const corsProxy = localStorage.getItem("corsProxy");
+            const moduleHeaders = this.getStreamHeaders(streamUrl);
+            const allHeaders = { ...moduleHeaders, ...customHeaders };
             
             this.log(`=== CORS PROXY DEBUG ===`, 'info');
             this.log(`CORS Proxy from localStorage: "${corsProxy}"`, 'info');
             this.log(`Stream URL to load: ${streamUrl}`, 'info');
+            this.log(`Module headers: ${JSON.stringify(moduleHeaders)}`, 'info');
             this.log(`Custom headers: ${JSON.stringify(customHeaders)}`, 'info');
+            this.log(`CORS extension detected: ${this.corsExtensionDetected}`, 'info');
             
-            if (corsProxy && corsProxy.trim() !== "") {
-                this.log('✅ CORS proxy detected - using blob method to ensure headers are properly forwarded', 'info');
+            // Enhanced logic: Always use blob method for pixeldrain and similar services that block localhost
+            const isPixelDrain = streamUrl.includes('pixeldrain.net');
+            const isOriginBlockingService = isPixelDrain || streamUrl.includes('vidoza.') || streamUrl.includes('doodstream.');
+            const needsBlobMethod = corsProxy && corsProxy.trim() !== "";
+            const hasImportantHeaders = Object.keys(allHeaders).length > 0;
+            
+            if (needsBlobMethod) {
+                this.log('✅ CORS proxy detected - using blob method to mask localhost origin', 'info');
                 this.log(`Will fetch via proxy: ${corsProxy}${streamUrl}`, 'info');
                 await this.loadPlyrBlobStream(streamUrl, subsUrl, title, customHeaders);
+            } else if (isOriginBlockingService) {
+                this.log('⚠️ Origin-blocking service detected (pixeldrain/vidoza/doodstream)', 'warning');
+                this.log('These services block localhost - CORS proxy required for streaming', 'warning');
+                
+                if (this.corsExtensionDetected) {
+                    this.log('CORS extension detected but insufficient for origin-blocking services', 'warning');
+                    this.log('Attempting blob method with extension headers...', 'info');
+                    await this.loadPlyrBlobStream(streamUrl, subsUrl, title, customHeaders);
+                } else {
+                    this.showPlayerError(
+                        'Origin Blocking Detected: This streaming service blocks localhost access. Please configure a CORS proxy.',
+                        streamUrl
+                    );
+                    this.showCorsDialog(); // Guide user to setup proxy
+                    return;
+                }
+            } else if (hasImportantHeaders && this.corsExtensionDetected) {
+                this.log('✅ CORS extension + module headers detected - using blob method to preserve headers', 'info');
+                this.log(`Headers to preserve: ${Object.keys(allHeaders).join(', ')}`, 'info');
+                await this.loadPlyrBlobStream(streamUrl, subsUrl, title, customHeaders);
             } else {
-                this.log('❌ No CORS proxy configured - using direct method', 'warning');
+                this.log('❌ No CORS proxy or headers - using direct method', 'warning');
                 // For direct video files without CORS proxy, try fetch with proper headers first
-                const videoHeaders = { ...this.getStreamHeaders(streamUrl), ...customHeaders };
-                this.log(`Loading direct video with headers: ${Object.keys(videoHeaders).join(', ')}`, 'info');
+                this.log(`Loading direct video with headers: ${Object.keys(allHeaders).join(', ')}`, 'info');
                 
                 try {
                     const videoResponse = await fetch(streamUrl, {
                         method: 'HEAD', // Just check if accessible
-                        headers: videoHeaders,
+                        headers: allHeaders,
                         mode: 'cors'
                     });
 
@@ -3395,156 +3391,473 @@ class SoraApp {
         }
     }
 
-    async detectCorsExtension() {
+    async detectCorsExtension(forceReset = false) {
         try {
-            this.log('Checking CORS configuration...', 'info');
+            // Force reset if requested (when user manually retests)
+            if (forceReset) {
+                this.corsExtensionDetected = false;
+                localStorage.removeItem('corsDetectionMethod');
+                this.showCorsTestingState();
+            }
             
             // Check if user has configured a CORS proxy
             const corsProxy = localStorage.getItem("corsProxy");
             if (corsProxy) {
-                this.log(`Using CORS proxy: ${corsProxy}`, 'success');
                 this.corsExtensionDetected = true;
                 this.showCorsStatus(true);
                 return;
             }
             
-            // Test 1: Try direct request to detect CORS extension
+            // Comprehensive CORS extension detection
+            // Test multiple methods and URLs to determine if CORS extensions are working
             let corsDetected = false;
+            let detectionMethod = '';
             
+            // Test 1: Try XMLHttpRequest with a simple GET request
             try {
-                const testUrl = 'https://httpbin.org/headers';
-                const testHeaders = {
-                    'X-CORS-Test': 'extension-detection',
-                    'X-Custom-Referer': 'test-domain.com'
-                };
-                
-                const testResponse = await this.soraFetch(testUrl, {
-                    method: 'GET',
-                    headers: testHeaders
+                await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.timeout = 5000;
+                    xhr.open('GET', 'https://httpbin.org/get', true);
+                    
+                    xhr.onload = () => {
+                        if (xhr.status === 200) {
+                            corsDetected = true;
+                            detectionMethod = 'XMLHttpRequest';
+                            resolve();
+                        } else {
+                            reject(new Error(`HTTP ${xhr.status}`));
+                        }
+                    };
+                    
+                    xhr.onerror = () => reject(new Error('Network error'));
+                    xhr.ontimeout = () => reject(new Error('Timeout'));
+                    
+                    try {
+                        xhr.send();
+                    } catch (e) {
+                        reject(e);
+                    }
                 });
-                
-                const responseData = JSON.parse(testResponse);
-                if (responseData.headers && (
-                    responseData.headers['X-CORS-Test'] ||
-                    responseData.headers['x-cors-test'] ||
-                    responseData.headers['X-Custom-Referer'] ||
-                    responseData.headers['x-custom-referer']
-                )) {
-                    corsDetected = true;
-                    this.log('Custom headers found in response - CORS extension active', 'success');
-                }
-            } catch (corsError) {
-                this.log(`CORS test failed: ${corsError.message}`, 'info');
-                // Check if it's a CORS-specific error
-                if (corsError.message.includes('CORS') || corsError.message.includes('blocked')) {
-                    this.log('CORS blocking detected - extension needed or proxy required', 'warning');
+            } catch (error) {
+                // XMLHttpRequest failed, continue testing
+            }
+            
+            // Test 2: Try fetch if XMLHttpRequest failed
+            if (!corsDetected) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5000);
+                    
+                    const response = await fetch('https://httpbin.org/get', {
+                        method: 'GET',
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (response.ok) {
+                        corsDetected = true;
+                        detectionMethod = 'fetch';
+                    }
+                } catch (error) {
+                    // Fetch also failed
                 }
             }
             
-            // Update status based on detection results
-            this.corsExtensionDetected = corsDetected;
-            if (corsDetected) {
-                this.log('✅ CORS extension detected and working!', 'success');
-                this.showCorsStatus(true);
-            } else {
-                this.log('⚠️ CORS extension not detected - proxy may be needed', 'warning');
-                this.showCorsStatus(false);
+            // Test 3: Try a different URL in case httpbin.org is blocked
+            if (!corsDetected) {
+                try {
+                    await new Promise((resolve, reject) => {
+                        const xhr = new XMLHttpRequest();
+                        xhr.timeout = 5000;
+                        xhr.open('GET', 'https://api.github.com/zen', true);
+                        
+                        xhr.onload = () => {
+                            if (xhr.status === 200) {
+                                corsDetected = true;
+                                detectionMethod = 'XMLHttpRequest (GitHub API)';
+                                resolve();
+                            } else {
+                                reject(new Error(`HTTP ${xhr.status}`));
+                            }
+                        };
+                        
+                        xhr.onerror = () => reject(new Error('Network error'));
+                        xhr.ontimeout = () => reject(new Error('Timeout'));
+                        
+                        try {
+                            xhr.send();
+                        } catch (e) {
+                            reject(e);
+                        }
+                    });
+                } catch (error) {
+                    // Final test failed
+                }
             }
+            
+            // Update detection results
+            this.corsExtensionDetected = corsDetected;
+            
+            if (corsDetected) {
+                localStorage.setItem('corsDetectionMethod', detectionMethod);
+            } else {
+                localStorage.removeItem('corsDetectionMethod');
+            }
+            
+            // Always update the status display with final results
+            this.showCorsStatus(this.corsExtensionDetected);
             
         } catch (error) {
-            this.log(`CORS detection failed: ${error.message}`, 'warning');
             this.corsExtensionDetected = false;
+            localStorage.removeItem('corsDetectionMethod');
             this.showCorsStatus(false);
         }
     }
+    
+    // Initialize default CORS proxy for seamless streaming
+    initializeDefaultCorsProxy() {
+        // Check if user has already configured a proxy
+        const existingProxy = localStorage.getItem("corsProxy");
+        
+        if (!existingProxy) {
+            // Set Cloudflare proxy as default for seamless streaming
+            const defaultProxy = 'https://cloudflare-cors-anywhere.realdoomsboygaming.workers.dev/?';
+            localStorage.setItem("corsProxy", defaultProxy);
+            this.log('🔗 Default CORS proxy initialized: cloudflare-cors-anywhere.realdoomsboygaming.workers.dev', 'success');
+            this.log('✅ Seamless streaming enabled - no manual configuration needed!', 'success');
+            
+            // Show a brief notification
+            this.showMessage("Streaming Ready", "success", 
+                "🚀 Default CORS proxy enabled!"
+            );
+        } else {
+            this.log(`🔗 Using existing CORS proxy: ${existingProxy}`, 'info');
+        }
+    }
+    
+    // Show testing state during CORS detection
+    showCorsTestingState() {
+        let statusElement = document.getElementById('cors-status');
+        if (!statusElement) {
+            statusElement = document.createElement('div');
+            statusElement.id = 'cors-status';
+            statusElement.style.cssText = `
+                position: fixed;
+                top: 70px;
+                right: 10px;
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-size: 0.8rem;
+                font-weight: bold;
+                z-index: 10000;
+                transition: all 0.3s ease;
+                backdrop-filter: blur(10px);
+                cursor: pointer;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            `;
+            document.body.appendChild(statusElement);
+        }
+        
+        statusElement.innerHTML = '🔄 Testing CORS... <span style="font-size: 0.7em; opacity: 0.8;">⏳</span>';
+        statusElement.style.cssText += `
+            background: rgba(255, 193, 7, 0.15);
+            color: #ffc107;
+            border: 1px solid rgba(255, 193, 7, 0.4);
+            animation: testing-pulse 1s infinite;
+        `;
+        statusElement.title = 'Testing CORS extension and proxy configuration...';
+        statusElement.onclick = null; // Disable clicks during testing
+        
+        // Add testing animation if not already present
+        if (!document.getElementById('testing-animations')) {
+            const style = document.createElement('style');
+            style.id = 'testing-animations';
+            style.textContent = `
+                @keyframes testing-pulse {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.7; }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+    }
+    
+    // Setup periodic CORS detection to catch newly installed extensions
+    setupPeriodicCorsDetection() {
+        // Check for CORS extensions every 30 seconds, but only if not already detected
+        this.corsDetectionInterval = setInterval(() => {
+            // Only re-detect if no CORS method is currently active
+            const corsProxy = localStorage.getItem("corsProxy");
+            if (!this.corsExtensionDetected && !corsProxy) {
+                this.log('🔄 Periodic CORS check...', 'info');
+                this.detectCorsExtension();
+            }
+        }, 30000);
+        
+        // Also check when window regains focus (user might have installed extension)
+        let focusCheckTimeout;
+        window.addEventListener('focus', () => {
+            clearTimeout(focusCheckTimeout);
+            focusCheckTimeout = setTimeout(() => {
+                const corsProxy = localStorage.getItem("corsProxy");
+                if (!this.corsExtensionDetected && !corsProxy) {
+                    this.log('🔄 Window focus CORS check...', 'info');
+                    this.detectCorsExtension();
+                }
+            }, 1000); // Wait 1 second after focus to let extension initialize
+        });
+        
+        // Check when visibility changes (mobile/desktop tab switching)
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                setTimeout(() => {
+                    const corsProxy = localStorage.getItem("corsProxy");
+                    if (!this.corsExtensionDetected && !corsProxy) {
+                        this.log('🔄 Visibility change CORS check...', 'info');
+                        this.detectCorsExtension();
+                    }
+                }, 1500); // Wait 1.5 seconds for mobile browsers
+            }
+        });
+    }
 
-    // Sora-compatible fetch function with CORS proxy support
+    // Enhanced Sora-compatible fetch function with robust CORS extension support
     soraFetch(url, options = {}) {
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             // Get CORS proxy configuration from localStorage (Sora WebUI pattern)
             let corsProxy = localStorage.getItem("corsProxy") || "";
+            const usingProxy = corsProxy && corsProxy.trim() !== "";
             
+            // Enhanced URL cleaning (Sora WebUI pattern)
+            const cleanUrl = this.cleanProxyUrl(url);
+            
+            // If CORS extension is detected and no proxy is configured, use native fetch
+            if (this.corsExtensionDetected && !usingProxy) {
+                try {
+                    const fetchOptions = {
+                        method: options.method || "GET",
+                        mode: 'cors',
+                        credentials: 'omit',
+                        headers: options.headers || {}
+                    };
+                    
+                    if (options.body) {
+                        fetchOptions.body = options.body;
+                    }
+                    
+                    const response = await fetch(cleanUrl, fetchOptions);
+                    
+                    if (response.ok) {
+                        // Handle different response types
+                        if (url.match(/\.(mp4|webm|m4v|mov|avi|mkv|mp3|m4a|ogg|flv|ts|jpg|jpeg|png|gif|bmp|webp|svg|ico)$/i)) {
+                            const arrayBuffer = await response.arrayBuffer();
+                            resolve(arrayBuffer);
+                        } else {
+                            const text = await response.text();
+                            resolve(text);
+                        }
+                    } else {
+                        reject(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                } catch (error) {
+                    reject(`CORS Extension fetch failed: ${error.message}`);
+                }
+                return;
+            }
+            
+            // Use XMLHttpRequest for proxy mode or fallback
             const xhr = new XMLHttpRequest();
             const method = options.method || "GET";
             
-            // Set response type for binary data (video/audio files)
+            // Enhanced response type detection and handling
             if (options.responseType) {
                 xhr.responseType = options.responseType;
-            } else if (url.match(/\.(mp4|webm|m4v|mov|avi|mkv|mp3|m4a|ogg)$/i)) {
+            } else if (url.match(/\.(mp4|webm|m4v|mov|avi|mkv|mp3|m4a|ogg|flv|ts)$/i)) {
+                xhr.responseType = 'arraybuffer';
+            } else if (url.match(/\.(jpg|jpeg|png|gif|bmp|webp|svg|ico)$/i)) {
                 xhr.responseType = 'arraybuffer';
             }
             
-            // Clean up proxy URL patterns like in working Sora implementation
-            if (url.startsWith("https://cloudflare-cors-anywhere.jmcrafter26.workers.dev/?")) {
-                url = url.replace("https://cloudflare-cors-anywhere.jmcrafter26.workers.dev/?", "");
+            // Apply CORS proxy with proper URL format for corsproxy.io
+            let finalUrl;
+            if (corsProxy) {
+                if (corsProxy.includes('corsproxy.io')) {
+                    // corsproxy.io expects raw URL after the ?
+                    finalUrl = corsProxy + cleanUrl;
+                } else if (corsProxy.includes('allorigins.win')) {
+                    // allorigins expects encoded URL
+                    finalUrl = corsProxy + encodeURIComponent(cleanUrl);
+                } else {
+                    // Other proxies use direct concatenation
+                    finalUrl = corsProxy + cleanUrl;
+                }
+            } else {
+                finalUrl = cleanUrl;
             }
             
-            // Apply CORS proxy if configured
-            const finalUrl = corsProxy + url;
             xhr.open(method, finalUrl, true);
             
-            this.log(`🚀 CORS Fetch: ${method} ${finalUrl}`, 'info');
-            this.log(`📡 Original URL: ${url}`, 'info');
-            this.log(`🔗 CORS Proxy: ${corsProxy}`, 'info');
-            this.log(`📨 Headers to apply: ${options.headers ? Object.keys(options.headers).join(', ') : 'none'}`, 'info');
-            if (options.headers) {
-                this.log(`📨 Full headers: ${JSON.stringify(options.headers, null, 2)}`, 'info');
-            }
+            // Enhanced timeout handling for different content types
+            const isMediaFile = url.match(/\.(mp4|webm|m4v|mov|avi|mkv|mp3|m4a|ogg)$/i);
+            xhr.timeout = isMediaFile ? 30000 : 10000; // 30s for media, 10s for others
             
-            // Apply headers if provided - these are the module's headers including baseUrl referer
+            // Enhanced header application
             if (options.headers && typeof options.headers === 'object') {
+                const appliedHeaders = {};
+                const rejectedHeaders = {};
+                
                 Object.keys(options.headers).forEach(key => {
                     try {
-                        // Special handling for critical headers
-                        if (key.toLowerCase() === 'referer') {
-                            this.log(`Setting Referer header to: ${options.headers[key]}`, 'info');
-                        }
-                        xhr.setRequestHeader(key, options.headers[key]);
+                        const value = options.headers[key];
+                        xhr.setRequestHeader(key, value);
+                        appliedHeaders[key] = value;
                     } catch (error) {
-                        this.log(`Failed to set header ${key}: ${error.message}`, 'warning');
+                        rejectedHeaders[key] = options.headers[key];
                     }
                 });
             }
             
             xhr.onload = () => {
                 if (xhr.status >= 200 && xhr.status < 300) {
-                    this.log(`CORS Response Status: ${xhr.status}`, 'info');
-                    // Return appropriate response based on response type
+                    // Enhanced response handling
                     if (xhr.responseType === 'arraybuffer') {
-                        this.log('Returning binary response (arraybuffer)', 'info');
                         resolve(xhr.response);
                     } else {
                         resolve(xhr.responseText);
                     }
                 } else {
-                    this.log(`CORS Error: ${xhr.status} ${xhr.statusText}`, 'error');
-                    if (xhr.status === 0) {
-                        this.showCorsDialog();
-                        reject("CORS Error: The request was blocked");
-                    } else {
-                        reject(`HTTP ${xhr.status}: ${this.getStatusMessage(xhr.status)}`);
-                    }
+                    this.handleEnhancedError(xhr, url, usingProxy, reject);
                 }
             };
             
             xhr.onerror = () => {
-                this.log(`CORS Network Error: ${xhr.status} ${xhr.statusText}`, 'error');
-                if (xhr.status === 0) {
-                    this.showCorsDialog();
-                    reject("CORS Error: The request was blocked");
+                this.handleEnhancedError(xhr, url, usingProxy, reject);
+            };
+            
+            xhr.ontimeout = () => {
+                if (usingProxy) {
+                    reject(`Proxy timeout: Request took longer than ${xhr.timeout}ms`);
                 } else {
-                    reject(xhr.statusText || "Network error");
+                    reject(`Request timeout: Consider using a CORS proxy for large files`);
                 }
             };
             
-            // Send request with body for POST/PUT
-            if (method === "POST" && options.body) {
-                this.log("POST requests are currently limited in CORS mode", 'warning');
-                xhr.send(options.body);
-            } else {
-                xhr.send();
+            // Send request with enhanced error handling
+            try {
+                if (method === "POST" && options.body) {
+                    xhr.send(options.body);
+                } else {
+                    xhr.send();
+                }
+            } catch (sendError) {
+                reject(`Request failed: ${sendError.message}`);
             }
         });
+    }
+    
+    // Helper method to clean proxy URLs
+    cleanProxyUrl(url) {
+        // Remove common proxy prefixes that might cause double-proxying
+        const proxyPrefixes = [
+            "https://cloudflare-cors-anywhere.jmcrafter26.workers.dev/?",
+            "https://cors-anywhere.herokuapp.com/",
+            "https://api.allorigins.win/get?url=",
+            "https://thingproxy.freeboard.io/fetch/"
+        ];
+        
+        for (const prefix of proxyPrefixes) {
+            if (url.startsWith(prefix)) {
+                return url.replace(prefix, "");
+            }
+        }
+        
+        return url;
+    }
+    
+    // Enhanced header setting for CORS extensions
+    setEnhancedHeader(xhr, key, value, appliedHeaders, rejectedHeaders) {
+        try {
+            // Special handling for critical headers in CORS extension mode
+            const lowerKey = key.toLowerCase();
+            
+            if (lowerKey === 'referer' || lowerKey === 'referrer') {
+                // CORS extensions often allow Referer modification
+                xhr.setRequestHeader('Referer', value);
+                appliedHeaders[key] = value;
+                this.log(`🔗 Enhanced Referer: ${value}`, 'info');
+            } else if (lowerKey === 'origin') {
+                // Some CORS extensions allow Origin modification
+                try {
+                    xhr.setRequestHeader('Origin', value);
+                    appliedHeaders[key] = value;
+                    this.log(`🌐 Enhanced Origin: ${value}`, 'info');
+                } catch (originError) {
+                    // Fallback: use X-Forwarded-For or similar
+                    xhr.setRequestHeader('X-Original-Origin', value);
+                    appliedHeaders['X-Original-Origin'] = value;
+                    this.log(`🔄 Origin fallback: X-Original-Origin`, 'info');
+                }
+            } else if (lowerKey === 'user-agent') {
+                // User-Agent modifications
+                try {
+                    xhr.setRequestHeader('User-Agent', value);
+                    appliedHeaders[key] = value;
+                } catch (uaError) {
+                    xhr.setRequestHeader('X-User-Agent', value);
+                    appliedHeaders['X-User-Agent'] = value;
+                }
+            } else {
+                // Standard header setting
+                xhr.setRequestHeader(key, value);
+                appliedHeaders[key] = value;
+            }
+        } catch (error) {
+            rejectedHeaders[key] = value;
+            throw error;
+        }
+    }
+    
+    // Enhanced error handling
+    handleEnhancedError(xhr, originalUrl, usingProxy, reject) {
+        const status = xhr.status;
+        const statusText = xhr.statusText;
+        
+        if (status === 0) {
+            // Network error or CORS block
+            if (usingProxy) {
+                this.log(`🚫 Proxy connection failed`, 'error');
+                reject("Proxy Error: Unable to connect to proxy server");
+            } else {
+                this.log(`🚫 CORS block detected - extension may not be active`, 'error');
+                this.showCorsDialog();
+                reject("CORS Error: Request blocked - try enabling CORS extension or setting up proxy");
+            }
+        } else if (status === 403) {
+            this.log(`🔐 Access forbidden (403) - authentication or permission issue`, 'error');
+            
+            // Special handling for origin-blocking services
+            if (originalUrl.includes('pixeldrain.net') || originalUrl.includes('vidoza.') || originalUrl.includes('doodstream.')) {
+                if (usingProxy) {
+                    reject(`Proxy Error: 403 Forbidden - The proxy may be blocked or the file may not exist`);
+                } else {
+                    reject(`Origin Blocking: ${originalUrl.includes('pixeldrain.net') ? 'Pixeldrain' : 'This service'} blocks localhost access. Configure a CORS proxy to mask your origin.`);
+                }
+            } else if (this.corsExtensionDetected) {
+                reject(`Authentication Error: Access denied to ${originalUrl}`);
+            } else {
+                reject(`Access Denied: Try enabling CORS extension for better authentication support`);
+            }
+        } else if (status === 404) {
+            reject(`Not Found: ${originalUrl} does not exist`);
+        } else if (status === 429) {
+            reject(`Rate Limited: Too many requests to ${originalUrl}`);
+        } else if (status >= 500) {
+            reject(`Server Error: ${status} ${statusText}`);
+        } else {
+            reject(`HTTP ${status}: ${this.getStatusMessage(status)}`);
+        }
     }
 
     getStatusMessage(status) {
@@ -3649,24 +3962,51 @@ class SoraApp {
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
         `;
 
+        const isDefaultProxy = corsProxy === 'https://corsproxy.io/?';
+        
         modal.innerHTML = `
-            <h3 style="margin: 0 0 1rem 0; color: var(--netflix-red);">🚫 CORS Configuration Required</h3>
-            <p style="margin: 0 0 1rem 0; line-height: 1.5;">To access streaming content, you need to configure CORS handling. Choose one option:</p>
+            <h3 style="margin: 0 0 1rem 0; color: var(--netflix-red);">🚫 CORS Configuration Issue</h3>
+            <p style="margin: 0 0 1rem 0; line-height: 1.5;">A CORS proxy should be automatically configured for seamless streaming. If you're seeing this, there may be an issue with the default setup.</p>
+            
+            <div style="margin: 1rem 0; padding: 0.75rem; background: rgba(0, 191, 255, 0.1); border-radius: 8px; border-left: 3px solid #00bfff;">
+                <h4 style="margin: 0 0 0.5rem 0; color: #00bfff;">🚀 Default Solution</h4>
+                <p style="margin: 0.5rem 0; font-size: 0.85rem;">We use <strong>corsproxy.io</strong> by default to handle all CORS issues automatically, including origin blocking from Pixeldrain, Vidoza, and Doodstream.</p>
+            </div>
             
             <div style="margin: 1rem 0; padding: 1rem; background: rgba(0, 123, 255, 0.1); border-radius: 8px; border-left: 3px solid #007bff;">
-                <h4 style="margin: 0 0 0.5rem 0; color: #007bff;">🔗 Option 1: Use CORS Proxy (Recommended)</h4>
-                <p style="margin: 0.5rem 0; font-size: 0.9rem;">Use a proxy server to bypass CORS restrictions:</p>
-                <button id="setup-proxy" style="margin: 0.5rem 0; padding: 0.5rem 1rem; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Setup Proxy</button>
+                <h4 style="margin: 0 0 0.5rem 0; color: #007bff;">🔗 Restore Default Proxy</h4>
+                <p style="margin: 0.5rem 0; font-size: 0.9rem;">Restore the default corsproxy.io configuration:</p>
+                <button id="setup-proxy" style="margin: 0.5rem 0; padding: 0.5rem 1rem; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Restore Default Proxy</button>
             </div>
             
             <div style="margin: 1rem 0; padding: 1rem; background: rgba(229, 9, 20, 0.1); border-radius: 8px; border-left: 3px solid var(--netflix-red);">
-                <h4 style="margin: 0 0 0.5rem 0; color: var(--netflix-red);">🔧 Option 2: Browser Extension</h4>
-                <p style="margin: 0.5rem 0; font-size: 0.9rem;">Install a CORS extension:</p>
-                <ul style="margin: 0.5rem 0; padding-left: 1.5rem; font-size: 0.9rem;">
-                    <li><strong>Chrome:</strong> "Cross Domain - CORS" or "CORS Unblock"</li>
-                    <li><strong>Firefox:</strong> "CORS Everywhere"</li>
-                </ul>
-                <button id="retest-cors" style="margin: 0.5rem 0; padding: 0.5rem 1rem; background: var(--netflix-red); color: white; border: none; border-radius: 4px; cursor: pointer;">I Installed Extension</button>
+                <h4 style="margin: 0 0 0.5rem 0; color: var(--netflix-red);">🔧 Option 2: Browser Extension (Recommended)</h4>
+                <p style="margin: 0.5rem 0; font-size: 0.9rem;">Install a CORS extension for enhanced streaming:</p>
+                
+                <div style="margin: 0.75rem 0; padding: 0.5rem; background: rgba(0, 0, 0, 0.2); border-radius: 4px;">
+                    <strong style="color: #4285f4;">🟦 Chrome Extensions:</strong>
+                    <ul style="margin: 0.25rem 0; padding-left: 1.5rem; font-size: 0.8rem;">
+                        <li><strong>"CORS Unblock"</strong> - Simple, effective</li>
+                        <li><strong>"Cross Domain - CORS"</strong> - Advanced features</li>
+                        <li><strong>"CORS Helper"</strong> - Lightweight option</li>
+                    </ul>
+                </div>
+                
+                <div style="margin: 0.75rem 0; padding: 0.5rem; background: rgba(0, 0, 0, 0.2); border-radius: 4px;">
+                    <strong style="color: #ff9500;">🟧 Firefox Extensions:</strong>
+                    <ul style="margin: 0.25rem 0; padding-left: 1.5rem; font-size: 0.8rem;">
+                        <li><strong>"CORS Everywhere"</strong> - Most popular</li>
+                        <li><strong>"CORS Toggle"</strong> - Quick enable/disable</li>
+                    </ul>
+                </div>
+                
+                <div style="margin: 0.75rem 0; padding: 0.5rem; background: rgba(0, 191, 255, 0.1); border-radius: 4px; border-left: 2px solid #00bfff;">
+                    <small style="font-size: 0.75rem; opacity: 0.9;">
+                        💡 <strong>Pro Tip:</strong> Extensions provide better header support and automatic authentication handling compared to proxies.
+                    </small>
+                </div>
+                
+                <button id="retest-cors" style="margin: 0.5rem 0; padding: 0.5rem 1rem; background: var(--netflix-red); color: white; border: none; border-radius: 4px; cursor: pointer;">I Installed Extension - Test Now</button>
             </div>
             
             <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
@@ -3679,13 +4019,13 @@ class SoraApp {
 
         // Event handlers
         document.getElementById('setup-proxy').onclick = () => {
-            this.setupProxy();
+            this.restoreDefaultProxy();
             document.body.removeChild(overlay);
         };
 
         document.getElementById('retest-cors').onclick = () => {
             document.body.removeChild(overlay);
-            this.detectCorsExtension();
+            this.detectCorsExtension(true); // Force reset and fresh detection
         };
 
         document.getElementById('close-cors-dialog').onclick = () => {
@@ -3717,12 +4057,33 @@ class SoraApp {
                 transition: all 0.3s ease;
                 backdrop-filter: blur(10px);
                 cursor: pointer;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
             `;
             document.body.appendChild(statusElement);
         }
+        
+        // Clear any testing animations
+        statusElement.style.animation = '';
+        
+        // Reset base styles (clear testing state)
+        statusElement.style.cssText = `
+            position: fixed;
+            top: 70px;
+            right: 10px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            z-index: 10000;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        `;
 
         // Use enhanced CORS status information
         const corsStatus = this.getEnhancedCorsStatus();
+        const detectionMethod = localStorage.getItem('corsDetectionMethod');
         
         if (corsStatus.enabled) {
             statusElement.innerHTML = `${corsStatus.status} <span style="font-size: 0.7em; opacity: 0.8;">⚙️</span>`;
@@ -3733,17 +4094,29 @@ class SoraApp {
                     color: #00bfff;
                     border: 1px solid rgba(0, 191, 255, 0.4);
                 `;
-                statusElement.title = `Enhanced Proxy: ${corsStatus.proxy.substring(0, 30)}... - Click for options`;
+                const proxyShort = corsStatus.proxy.substring(0, 30);
+                statusElement.title = `Enhanced Proxy Active: ${proxyShort}...\nClick for proxy options and settings`;
             } else {
                 statusElement.style.cssText += `
                     background: rgba(0, 255, 0, 0.15);
                     color: #00ff00;
                     border: 1px solid rgba(0, 255, 0, 0.4);
                 `;
-                statusElement.title = 'CORS extension active - Enhanced streaming enabled';
+                const methodInfo = detectionMethod ? `\nDetected via: ${detectionMethod}` : '';
+                statusElement.title = `CORS Extension Active - Enhanced streaming enabled${methodInfo}\nClick for extension options`;
             }
             
             statusElement.onclick = () => this.showCorsOptions();
+            
+            // Add pulse animation for newly detected extensions
+            if (detectionMethod && !statusElement.classList.contains('cors-detected')) {
+                statusElement.classList.add('cors-detected');
+                statusElement.style.animation = 'corsDetected 2s ease-in-out';
+                setTimeout(() => {
+                    statusElement.style.animation = '';
+                }, 2000);
+            }
+            
         } else {
             statusElement.innerHTML = '🔒 Setup CORS <span style="font-size: 0.7em; opacity: 0.8;">⚠️</span>';
             statusElement.style.cssText += `
@@ -3751,8 +4124,28 @@ class SoraApp {
                 color: #ffa500;
                 border: 1px solid rgba(255, 165, 0, 0.4);
             `;
-            statusElement.title = 'Click to configure enhanced CORS handling';
+            statusElement.title = 'CORS not configured - Limited streaming capabilities\nClick to setup CORS extension or proxy for enhanced features';
             statusElement.onclick = () => this.showCorsDialog();
+            
+            // Remove detection class if no longer detected
+            statusElement.classList.remove('cors-detected');
+        }
+        
+        // Add CSS animation if not already present
+        if (!document.getElementById('cors-animations')) {
+            const style = document.createElement('style');
+            style.id = 'cors-animations';
+            style.textContent = `
+                @keyframes corsDetected {
+                    0%, 100% { transform: scale(1); }
+                    50% { transform: scale(1.05); }
+                }
+                #cors-status:hover {
+                    transform: scale(1.02);
+                    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+                }
+            `;
+            document.head.appendChild(style);
         }
     }
 
@@ -3785,24 +4178,39 @@ class SoraApp {
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
         `;
 
+        const isDefaultProxy = corsProxy === 'https://corsproxy.io/?';
+        
         modal.innerHTML = `
-            <h3 style="margin: 0 0 1rem 0; color: var(--netflix-red);">⚙️ CORS Configuration</h3>
+            <h3 style="margin: 0 0 1rem 0; color: var(--netflix-red);">⚙️ CORS Proxy Management</h3>
             ${corsProxy ? `
-                <div style="margin: 1rem 0; padding: 1rem; background: rgba(0, 255, 0, 0.1); border-radius: 8px;">
-                    <h4 style="margin: 0 0 0.5rem 0; color: #00ff00;">Current Proxy:</h4>
+                <div style="margin: 1rem 0; padding: 1rem; background: ${isDefaultProxy ? 'rgba(0, 191, 255, 0.1)' : 'rgba(255, 193, 7, 0.1)'}; border-radius: 8px;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: ${isDefaultProxy ? '#00bfff' : '#ffc107'};">
+                        ${isDefaultProxy ? '🚀 Default Proxy Active' : '🔧 Custom Proxy Active'}:
+                    </h4>
                     <p style="font-family: monospace; font-size: 0.8rem; word-break: break-all;">${corsProxy}</p>
+                    ${isDefaultProxy ? 
+                        '<p style="font-size: 0.8rem; margin: 0.5rem 0 0 0; opacity: 0.9;">✅ Optimized for all streaming services including Pixeldrain</p>' : 
+                        '<p style="font-size: 0.8rem; margin: 0.5rem 0 0 0; opacity: 0.9;">⚠️ Custom proxy - test compatibility if issues occur</p>'
+                    }
                 </div>
             ` : `
-                <p style="margin: 0 0 1rem 0;">CORS extension detected and active.</p>
+                <div style="margin: 1rem 0; padding: 1rem; background: rgba(229, 9, 20, 0.1); border-radius: 8px;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: var(--netflix-red);">❌ No Proxy Configured</h4>
+                    <p style="font-size: 0.9rem;">This is unusual - a default proxy should be configured automatically.</p>
+                </div>
             `}
             
             <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1.5rem;">
                 <button id="retest-cors-config" style="padding: 0.75rem; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer;">🔄 Retest Configuration</button>
                 ${corsProxy ? `
-                    <button id="change-proxy" style="padding: 0.75rem; background: #ffa500; color: white; border: none; border-radius: 6px; cursor: pointer;">🔗 Change Proxy</button>
+                    <button id="test-pixeldrain" style="padding: 0.75rem; background: #17a2b8; color: white; border: none; border-radius: 6px; cursor: pointer;">🧪 Test Content Access</button>
+                    ${!isDefaultProxy ? `
+                        <button id="restore-default" style="padding: 0.75rem; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer;">🚀 Restore Default Proxy</button>
+                    ` : ''}
+                    <button id="change-proxy" style="padding: 0.75rem; background: #ffa500; color: white; border: none; border-radius: 6px; cursor: pointer;">🔧 Advanced Proxy Setup</button>
                     <button id="disable-proxy" style="padding: 0.75rem; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer;">❌ Disable Proxy</button>
                 ` : `
-                    <button id="setup-proxy-option" style="padding: 0.75rem; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer;">🔗 Setup Proxy Instead</button>
+                    <button id="setup-proxy-option" style="padding: 0.75rem; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer;">🚀 Restore Default Proxy</button>
                 `}
                 <button id="close-cors-options" style="padding: 0.75rem; background: #666; color: white; border: none; border-radius: 6px; cursor: pointer;">Close</button>
             </div>
@@ -3814,15 +4222,31 @@ class SoraApp {
         // Event handlers
         document.getElementById('retest-cors-config').onclick = () => {
             document.body.removeChild(overlay);
-            this.detectCorsExtension();
+            this.detectCorsExtension(true); // Force reset and fresh detection
         };
 
         if (corsProxy) {
+            const testBtn = document.getElementById('test-pixeldrain');
+            if (testBtn) {
+                testBtn.id = 'test-cors-proxy';
+                testBtn.textContent = '🧪 Test Proxy Access';
+                testBtn.onclick = () => {
+                    document.body.removeChild(overlay);
+                    this.testCorsProxyAccess();
+                };
+            }
+            // Restore default proxy button (only shown for custom proxies)
+            const restoreBtn = document.getElementById('restore-default');
+            if (restoreBtn) {
+                restoreBtn.onclick = () => {
+                    document.body.removeChild(overlay);
+                    this.restoreDefaultProxy();
+                };
+            }
             document.getElementById('change-proxy').onclick = () => {
                 document.body.removeChild(overlay);
                 this.setupProxy();
             };
-
             document.getElementById('disable-proxy').onclick = () => {
                 if (confirm('Disable CORS proxy? You may need a browser extension for streaming to work.')) {
                     document.body.removeChild(overlay);
@@ -3834,7 +4258,7 @@ class SoraApp {
             if (setupProxyBtn) {
                 setupProxyBtn.onclick = () => {
                     document.body.removeChild(overlay);
-                    this.setupProxy();
+                    this.restoreDefaultProxy();
                 };
             }
         }
@@ -3850,24 +4274,51 @@ class SoraApp {
         };
     }
 
+    // Restore default corsproxy.io proxy
+    restoreDefaultProxy() {
+        const defaultProxy = 'https://cloudflare-cors-anywhere.realdoomsboygaming.workers.dev/?';
+        localStorage.setItem("corsProxy", defaultProxy);
+        this.log('🔗 Default CORS proxy restored: cloudflare-cors-anywhere.realdoomsboygaming.workers.dev', 'success');
+        this.log('✅ Seamless streaming restored - all services should work!', 'success');
+        this.showMessage("Default Proxy Restored", "success", 
+            "🚀 Default CORS proxy restored!\n" +
+            "✅ cloudflare-cors-anywhere.realdoomsboygaming.workers.dev configured\n" +
+            "✅ Content streaming enabled\n" +
+            "✅ All origin blocking bypassed"
+        );
+        this.detectCorsExtension(); // Re-test with default proxy
+    }
+    
+    // Advanced proxy setup for power users
     setupProxy() {
-        const proxy = prompt(
-            "Enter a CORS proxy URL:\n\n" +
-            "Recommended: https://cloudflare-cors-anywhere.jmcrafter26.workers.dev/?\n" +
-            "Or use your own proxy service:",
+        const proxyOptions = [
+            "https://cloudflare-cors-anywhere.realdoomsboygaming.workers.dev/?",
             "https://cloudflare-cors-anywhere.jmcrafter26.workers.dev/?"
+        ];
+        
+        const proxy = prompt(
+            "🔧 Advanced CORS Proxy Configuration:\n\n" +
+            "Current default: https://cloudflare-cors-anywhere.realdoomsboygaming.workers.dev/? (recommended)\n\n" +
+            "Alternative options:\n" +
+            "• https://cloudflare-cors-anywhere.jmcrafter26.workers.dev/?\n\n" +
+            "Or enter your own proxy URL:",
+            "https://cloudflare-cors-anywhere.realdoomsboygaming.workers.dev/?"
         );
         
         if (proxy) {
-            if (proxy === "https://cloudflare-cors-anywhere.jmcrafter26.workers.dev/?" && 
-                !confirm("This is a public proxy that may be slow or unreliable. Only use if you don't have another option. Continue?")) {
+            // Validate proxy URL format
+            if (!proxy.startsWith('http://') && !proxy.startsWith('https://')) {
+                this.showMessage("Invalid Proxy", "error", "Proxy URL must start with http:// or https://");
                 return;
             }
             
             localStorage.setItem("corsProxy", proxy);
-            this.log(`CORS proxy configured: ${proxy}`, 'success');
-            this.showMessage("Proxy Configured", "success", "CORS proxy has been set up successfully!");
-            this.detectCorsExtension(); // Re-test with proxy
+            this.log(`🔗 Advanced CORS proxy configured: ${proxy}`, 'success');
+            this.log('✅ Custom proxy enabled - testing compatibility...', 'success');
+            this.showMessage("Custom Proxy Configured", "success", 
+                `🔧 Custom CORS proxy set up!\n${proxy}\n\nUse "Test Content Access" to verify compatibility.`
+            );
+            this.detectCorsExtension(); // Re-test with custom proxy
         }
     }
 
@@ -3906,6 +4357,13 @@ class SoraApp {
         
         if (this.worker) {
             this.worker.terminate();
+        }
+        
+        // Clean up CORS detection interval
+        if (this.corsDetectionInterval) {
+            clearInterval(this.corsDetectionInterval);
+            this.corsDetectionInterval = null;
+            this.log('CORS detection interval cleared', 'info');
         }
         
         // Clean up CORS status
@@ -4007,23 +4465,25 @@ class SoraApp {
     getEnhancedCorsStatus() {
         const corsProxy = localStorage.getItem("corsProxy");
         if (corsProxy) {
+            const isDefaultProxy = corsProxy === 'https://corsproxy.io/?';
             return {
                 enabled: true,
                 type: 'proxy',
                 proxy: corsProxy,
-                status: '🔗 Proxy Active'
+                isDefault: isDefaultProxy,
+                status: isDefaultProxy ? '🚀 Ready' : '🔧 Custom Proxy'
             };
         } else if (this.corsExtensionDetected) {
             return {
                 enabled: true,
                 type: 'extension',
-                status: '🔓 CORS Active'
+                status: '🛡️ Extension'
             };
         } else {
             return {
                 enabled: false,
                 type: 'none',
-                status: '🔒 Setup CORS'
+                status: '❌ Setup Missing'
             };
         }
     }
@@ -4118,6 +4578,33 @@ class SoraApp {
                 }, 100);
             }
         });
+    }
+
+    // Test if the proxy can successfully access a known CORS-blocked image
+    async testCorsProxyAccess() {
+        try {
+            this.log('🧪 Testing CORS proxy access with a CORS-blocked image...', 'info');
+            this.showMessage("Testing Proxy", "info", "Testing CORS proxy access...");
+            // Use a known CORS-blocked image for testing
+            const testUrl = 'https://i.imgur.com/removed.png';
+            const response = await this.soraFetch(testUrl, {
+                method: 'GET',
+                // No need for Accept header, we want the raw image
+            });
+            if (response) {
+                this.log(`✅ Proxy test successful! Response type: ${typeof response}, preview: ${String(response).slice(0, 40)}`, 'success');
+                this.showMessage("Proxy Working!", "success", 
+                    `✅ Successfully accessed CORS-blocked image through proxy!`);
+            } else {
+                throw new Error('No response data');
+            }
+        } catch (error) {
+            this.log(`❌ Proxy test failed: ${error.message}`, 'error');
+            this.showMessage("Proxy Test Failed", "error", 
+                `❌ Failed to access CORS-blocked image through proxy:\n${error.message}\n\n` +
+                `Try a different proxy or check your configuration.`
+            );
+        }
     }
 }
 

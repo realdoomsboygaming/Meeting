@@ -1,20 +1,13 @@
-// search-worker.js - Handles all search operations in background thread
-// This prevents the main UI thread from freezing during heavy operations
-
-// Sora Module Protection - JavaScript equivalent of Swift _0xB4F2()
 function _0xB4F2() {
-    // Base character arrays (equivalent to Swift implementation)
-    const cranci = [99, 114, 97, 110, 99, 105].map(code => String.fromCharCode(code)); // "cranci"
+    const cranci = [99, 114, 97, 110, 99, 105].map(code => String.fromCharCode(code));
     const alphanumeric = [
-        ...Array.from({length: 26}, (_, i) => String.fromCharCode(97 + i)), // a-z
-        ...Array.from({length: 10}, (_, i) => String.fromCharCode(48 + i))  // 0-9
+        ...Array.from({length: 26}, (_, i) => String.fromCharCode(97 + i)), 
+        ...Array.from({length: 10}, (_, i) => String.fromCharCode(48 + i))
     ];
     
-    // Initialize 16-position array
     const result = new Array(16).fill('');
     const usedPositions = new Set();
     
-    // Place cranci characters randomly
     cranci.forEach(char => {
         let position;
         do {
@@ -24,7 +17,6 @@ function _0xB4F2() {
         result[position] = char;
     });
     
-    // Fill remaining positions with random alphanumeric
     for (let i = 0; i < 16; i++) {
         if (result[i] === '') {
             result[i] = alphanumeric[Math.floor(Math.random() * alphanumeric.length)];
@@ -34,7 +26,6 @@ function _0xB4F2() {
     return result.join('');
 }
 
-// Make protection function globally available in worker context
 self._0xB4F2 = _0xB4F2;
 
 // Sora fetchv2 implementation for Web Worker context
