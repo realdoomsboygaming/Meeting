@@ -46,7 +46,7 @@ class SoraApp {
             detailsDiv: document.getElementById('details-container'),
             episodesDiv: document.querySelector('.episodes-list'),
             streamDiv: document.getElementById('stream-container'),
-            videoPlayer: document.getElementById('video-player'),
+            videoPlayer: document.getElementById('player'),
             // Plyr-specific elements
             plyrWrapper: document.getElementById('plyr-wrapper'),
             playerPlaceholder: document.getElementById('player-placeholder'),
@@ -130,8 +130,8 @@ class SoraApp {
                 }
             };
 
-            // Initialize Plyr
-            this.player = new Plyr(this.elements.videoPlayer, plyrOptions);
+            // Initialize Plyr (official pattern)
+            this.player = new Plyr('#player', plyrOptions);
             
             // Setup Plyr event listeners
             this.setupPlyrEvents();
@@ -151,10 +151,19 @@ class SoraApp {
         // Track player events for better UX
         this.player.on('ready', () => {
             this.log('Plyr player ready', 'success');
+            this.log(`Current source: ${this.player.source}`, 'info');
+        });
+
+        // SOURCE CHANGE DEBUGGING
+        this.player.on('sourcechange', () => {
+            this.log('=== PLYR SOURCE CHANGED ===', 'info');
+            this.log(`New source: ${JSON.stringify(this.player.source)}`, 'info');
+            this.log(`Current src: ${this.player.media?.currentSrc || 'none'}`, 'info');
         });
 
         this.player.on('play', () => {
             this.log('Video playback started', 'info');
+            this.log(`Playing: ${this.player.media?.currentSrc || 'unknown'}`, 'info');
         });
 
         this.player.on('pause', () => {
@@ -166,18 +175,28 @@ class SoraApp {
         });
 
         this.player.on('error', (event) => {
+            this.log('=== PLYR ERROR EVENT ===', 'error');
             const error = event.detail?.plyr?.media?.error;
             if (error) {
                 this.log(`Video player error: ${error.message || 'Unknown error'}`, 'error');
+                this.log(`Error code: ${error.code}`, 'error');
             }
+            this.log(`Media source: ${this.player.media?.currentSrc || 'none'}`, 'error');
         });
 
         this.player.on('loadstart', () => {
             this.log('Video loading started', 'info');
+            this.log(`Loading: ${this.player.media?.currentSrc || 'unknown'}`, 'info');
         });
 
         this.player.on('canplay', () => {
             this.log('Video can start playing', 'success');
+            this.log(`Ready to play: ${this.player.media?.currentSrc || 'unknown'}`, 'success');
+        });
+
+        this.player.on('loadedmetadata', () => {
+            this.log('Video metadata loaded', 'success');
+            this.log(`Duration: ${this.player.duration || 'unknown'}s`, 'info');
         });
 
         this.player.on('waiting', () => {
@@ -842,8 +861,177 @@ class SoraApp {
             if (this.moduleConfig) {
                 this.log(`Module name: ${this.moduleConfig.name}`, 'info');
             }
+            this.log(`Plyr player initialized: ${!!this.player}`, 'info');
+            this.log(`Video element found: ${!!this.elements.videoPlayer}`, 'info');
+            this.log(`To test player without module, use: app.testPlayer()`, 'info');
             this.log(`=== END MODULE STATUS ===`, 'info');
         }, 1000);
+    }
+    
+    // Test player functionality without requiring a module
+    testPlayer() {
+        this.log('=== TESTING PLAYER FUNCTIONALITY ===', 'info');
+        
+        if (!this.player) {
+            this.log('Plyr player not initialized. Retrying in 1 second...', 'warning');
+            setTimeout(() => this.testPlayer(), 1000);
+            return;
+        }
+        
+        // Use a test MP4 video
+        const testSource = {
+            type: 'video',
+            title: 'Test Video - Big Buck Bunny',
+            sources: [{
+                src: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+                type: 'video/mp4',
+                size: 720
+            }]
+        };
+        
+        try {
+            // Set source using official Plyr API
+            this.player.source = testSource;
+            
+            // Show player content
+            this.showPlayerContent('Test Video - Big Buck Bunny', testSource.sources[0].src);
+            
+            this.log('Test video loaded successfully! Player should now be visible.', 'success');
+            this.log('Click the play button to test video playback.', 'info');
+            
+        } catch (error) {
+            this.log(`Test player failed: ${error.message}`, 'error');
+        }
+    }
+    
+    // Debug player element visibility
+    debugPlayerVisibility() {
+        this.log('=== PLAYER VISIBILITY DEBUG ===', 'info');
+        
+        // Check if we're on the player section
+        const sections = ['search', 'details', 'episodes', 'player'];
+        sections.forEach(section => {
+            const sectionEl = document.getElementById(`${section}-section`);
+            if (sectionEl) {
+                const isVisible = sectionEl.style.display !== 'none';
+                this.log(`${section} section visible: ${isVisible}`, isVisible ? 'success' : 'info');
+            }
+        });
+        
+        // Check all player elements
+        const elements = {
+            'plyr-wrapper': this.elements.plyrWrapper,
+            'player (video)': this.elements.videoPlayer,
+            'player-placeholder': this.elements.playerPlaceholder,
+            'player-info': this.elements.playerInfo
+        };
+        
+        Object.entries(elements).forEach(([name, element]) => {
+            if (element) {
+                const styles = window.getComputedStyle(element);
+                this.log(`${name}:`, 'info');
+                this.log(`  - display: ${styles.display}`, 'info');
+                this.log(`  - visibility: ${styles.visibility}`, 'info');
+                this.log(`  - opacity: ${styles.opacity}`, 'info');
+                this.log(`  - height: ${styles.height}`, 'info');
+                this.log(`  - width: ${styles.width}`, 'info');
+            } else {
+                this.log(`${name}: NOT FOUND`, 'error');
+            }
+        });
+        
+        // Check Plyr instance
+        this.log(`Plyr instance exists: ${!!this.player}`, 'info');
+        if (this.player) {
+            this.log(`Plyr media element: ${!!this.player.media}`, 'info');
+            this.log(`Plyr current source: ${this.player.media?.currentSrc || 'none'}`, 'info');
+        }
+        
+        this.log('=== END VISIBILITY DEBUG ===', 'info');
+    }
+    
+    // Force player to be visible (aggressive CSS override)
+    forcePlayerVisible() {
+        this.log('=== FORCING PLAYER VISIBLE ===', 'info');
+        
+        // Navigate to player section
+        this.showSection('player');
+        
+        // Check DOM attachment status
+        this.log('=== DOM ATTACHMENT DEBUG ===', 'info');
+        if (this.elements.plyrWrapper) {
+            this.log(`Plyr wrapper in DOM: ${document.contains(this.elements.plyrWrapper)}`, 'info');
+            this.log(`Plyr wrapper parent: ${this.elements.plyrWrapper.parentNode?.tagName || 'none'}`, 'info');
+            this.log(`Plyr wrapper ID: ${this.elements.plyrWrapper.id}`, 'info');
+        }
+        
+        // Re-find elements if they've been detached
+        const freshWrapper = document.getElementById('plyr-wrapper');
+        const freshVideo = document.getElementById('player');
+        const freshPlaceholder = document.getElementById('player-placeholder');
+        const freshInfo = document.getElementById('player-info');
+        
+        this.log(`Fresh wrapper found: ${!!freshWrapper}`, 'info');
+        this.log(`Fresh video found: ${!!freshVideo}`, 'info');
+        
+        // Update references if different
+        if (freshWrapper && freshWrapper !== this.elements.plyrWrapper) {
+            this.log('🔧 Updating plyr-wrapper reference to fresh element', 'info');
+            this.elements.plyrWrapper = freshWrapper;
+        }
+        if (freshVideo && freshVideo !== this.elements.videoPlayer) {
+            this.log('🔧 Updating video player reference to fresh element', 'info');
+            this.elements.videoPlayer = freshVideo;
+        }
+        if (freshPlaceholder && freshPlaceholder !== this.elements.playerPlaceholder) {
+            this.log('🔧 Updating placeholder reference to fresh element', 'info');
+            this.elements.playerPlaceholder = freshPlaceholder;
+        }
+        if (freshInfo && freshInfo !== this.elements.playerInfo) {
+            this.log('🔧 Updating player info reference to fresh element', 'info');
+            this.elements.playerInfo = freshInfo;
+        }
+        
+        // Force plyr wrapper visible
+        if (this.elements.plyrWrapper) {
+            const wrapper = this.elements.plyrWrapper;
+            wrapper.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; height: auto !important; width: 100% !important; position: relative !important;';
+            
+            // Verify CSS took effect
+            const afterStyles = window.getComputedStyle(wrapper);
+            this.log(`Wrapper display after force: ${afterStyles.display}`, 'info');
+            this.log(`Wrapper visibility after force: ${afterStyles.visibility}`, 'info');
+            this.log('Plyr wrapper forced visible with cssText', 'success');
+        } else {
+            this.log('❌ No plyr wrapper found to force visible', 'error');
+        }
+        
+        // Force video element visible  
+        if (this.elements.videoPlayer) {
+            const video = this.elements.videoPlayer;
+            video.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; height: auto !important; width: 100% !important;';
+            
+            // Verify CSS took effect
+            const afterStyles = window.getComputedStyle(video);
+            this.log(`Video display after force: ${afterStyles.display}`, 'info');
+            this.log('Video element forced visible with cssText', 'success');
+        } else {
+            this.log('❌ No video element found to force visible', 'error');
+        }
+        
+        // Hide placeholder
+        if (this.elements.playerPlaceholder) {
+            this.elements.playerPlaceholder.style.cssText = 'display: none !important;';
+            this.log('Player placeholder forced hidden', 'info');
+        }
+        
+        // Show player info
+        if (this.elements.playerInfo) {
+            this.elements.playerInfo.style.cssText = 'display: block !important; visibility: visible !important;';
+            this.log('Player info forced visible', 'info');
+        }
+        
+        this.log('=== FORCE COMPLETE - PLAYER SHOULD NOW BE VISIBLE ===', 'success');
     }
 
     async performSearch() {
@@ -1224,11 +1412,25 @@ class SoraApp {
     async handleEpisodeClick(url) {
         this.log(`Episode clicked. Processing stream for: ${url}`);
         
-        // Enhanced loading state with progress
-        this.elements.streamDiv.innerHTML = `
-            <h3>Stream Player</h3>
-            ${this.createLoadingHTML('Fetching stream URL...', true)}
-        `;
+        // ⚠️ CRITICAL FIX: DO NOT clear innerHTML as it destroys player elements!
+        // Instead, just show loading in placeholder while preserving player elements
+        this.log('🔧 PRESERVING PLAYER ELEMENTS - not clearing innerHTML', 'info');
+        
+        // Hide player elements and show loading in placeholder
+        if (this.elements.plyrWrapper) {
+            this.elements.plyrWrapper.style.display = 'none';
+        }
+        if (this.elements.playerInfo) {
+            this.elements.playerInfo.style.display = 'none';
+        }
+        if (this.elements.playerPlaceholder) {
+            this.elements.playerPlaceholder.style.display = 'block';
+            this.elements.playerPlaceholder.innerHTML = `
+                <div class="placeholder-icon">⏳</div>
+                <div class="placeholder-title">Loading Stream</div>
+                <div class="placeholder-desc">Fetching stream URL...</div>
+            `;
+        }
         
         this.elements.videoPlayer.style.display = 'none';
         this.elements.videoPlayer.src = '';
@@ -1861,35 +2063,89 @@ class SoraApp {
     }
 
     showPlayerContent(title, streamUrl) {
-        this.log(`Showing player content: ${title}`, 'info');
+        this.log(`=== SHOWING PLAYER CONTENT ===`, 'info');
+        this.log(`Title: ${title}`, 'info');
+        this.log(`Stream URL: ${streamUrl}`, 'info');
+        
+        // Navigate to player section FIRST
+        this.log('Navigating to player section...', 'info');
+        this.showSection('player');
+        
+        // Debug all player-related elements
+        this.log('=== ELEMENT EXISTENCE DEBUG ===', 'info');
+        this.log(`Player placeholder exists: ${!!this.elements.playerPlaceholder}`, 'info');
+        this.log(`Player info exists: ${!!this.elements.playerInfo}`, 'info');
+        this.log(`Plyr wrapper exists: ${!!this.elements.plyrWrapper}`, 'info');
+        this.log(`Video player exists: ${!!this.elements.videoPlayer}`, 'info');
+        
+        if (this.elements.plyrWrapper) {
+            this.log(`Plyr wrapper current display: ${this.elements.plyrWrapper.style.display}`, 'info');
+        }
         
         // Hide placeholder
         if (this.elements.playerPlaceholder) {
             this.elements.playerPlaceholder.style.display = 'none';
+            this.log('Player placeholder hidden', 'info');
+        } else {
+            this.log('WARNING: Player placeholder not found', 'warning');
         }
         
         // Show and update info panel
         if (this.elements.playerInfo) {
             this.elements.playerInfo.style.display = 'block';
+            this.log('Player info panel shown', 'info');
+            
             if (this.elements.streamTitle) {
                 this.elements.streamTitle.textContent = title;
+                this.log(`Stream title set: ${title}`, 'info');
             }
             if (this.elements.streamUrlDisplay) {
                 this.elements.streamUrlDisplay.textContent = streamUrl;
+                this.log('Stream URL display set', 'info');
             }
+        } else {
+            this.log('WARNING: Player info panel not found', 'warning');
         }
         
-        // Ensure video player wrapper is visible
+        // Ensure video player wrapper is visible with extra debugging
         if (this.elements.plyrWrapper) {
+            this.log('Setting plyr wrapper visible...', 'info');
             this.elements.plyrWrapper.style.display = 'block';
-            this.log('Player wrapper made visible', 'success');
+            this.elements.plyrWrapper.style.visibility = 'visible';
+            this.elements.plyrWrapper.style.opacity = '1';
+            
+            // Force override any CSS hiding it
+            this.elements.plyrWrapper.style.setProperty('display', 'block', 'important');
+            
+            // Get computed styles
+            const computedStyles = window.getComputedStyle(this.elements.plyrWrapper);
+            this.log(`Plyr wrapper computed display: ${computedStyles.display}`, 'info');
+            this.log(`Plyr wrapper computed visibility: ${computedStyles.visibility}`, 'info');
+            this.log(`Plyr wrapper computed opacity: ${computedStyles.opacity}`, 'info');
+            this.log(`Plyr wrapper computed height: ${computedStyles.height}`, 'info');
+            this.log(`Plyr wrapper computed width: ${computedStyles.width}`, 'info');
+            
+            this.log('✅ Player wrapper made visible', 'success');
         } else {
-            this.log('Warning: plyrWrapper element not found', 'warning');
+            this.log('❌ CRITICAL: plyrWrapper element not found', 'error');
+            
+            // Try to find it manually
+            const manualSearch = document.getElementById('plyr-wrapper');
+            this.log(`Manual search for plyr-wrapper: ${!!manualSearch}`, 'info');
+            if (manualSearch) {
+                this.elements.plyrWrapper = manualSearch;
+                manualSearch.style.display = 'block';
+                this.log('Fixed plyrWrapper reference and made visible', 'success');
+            }
         }
         
         // Ensure video element is visible
         if (this.elements.videoPlayer) {
             this.elements.videoPlayer.style.display = 'block';
+            this.elements.videoPlayer.style.visibility = 'visible';
+            this.log('Video element made visible', 'info');
+        } else {
+            this.log('WARNING: Video element not found', 'warning');
         }
         
         // Hide quality selector for now (can be enhanced later)
@@ -1897,8 +2153,16 @@ class SoraApp {
             this.elements.qualitySelector.style.display = 'none';
         }
         
-        // Navigate to player section if not already there
-        this.showSection('player');
+        // Force scroll to player section
+        setTimeout(() => {
+            const playerSection = document.getElementById('player-section');
+            if (playerSection) {
+                playerSection.scrollIntoView({ behavior: 'smooth' });
+                this.log('Scrolled to player section', 'info');
+            }
+        }, 100);
+        
+        this.log('=== PLAYER CONTENT DISPLAY COMPLETED ===', 'success');
     }
 
     showPlayerError(message, streamUrl = '') {
@@ -2708,7 +2972,25 @@ class SoraApp {
         }
         this.elements.detailsDiv.innerHTML = '<h3>Details</h3><p><i>Click a search result to see details.</i></p>';
         this.elements.episodesDiv.innerHTML = '<i>...</i>';
-        this.elements.streamDiv.innerHTML = '<h3>Stream Player</h3><p><i>Click an episode to fetch the stream.</i></p>';
+        
+        // ⚠️ CRITICAL FIX: DO NOT clear streamDiv innerHTML as it destroys player elements!
+        // Instead, reset player state while preserving elements
+        this.log('🔧 RESET UI - preserving player elements', 'info');
+        if (this.elements.plyrWrapper) {
+            this.elements.plyrWrapper.style.display = 'none';
+        }
+        if (this.elements.playerInfo) {
+            this.elements.playerInfo.style.display = 'none';
+        }
+        if (this.elements.playerPlaceholder) {
+            this.elements.playerPlaceholder.style.display = 'block';
+            this.elements.playerPlaceholder.innerHTML = `
+                <div class="placeholder-icon">🎥</div>
+                <div class="placeholder-title">Ready to Stream</div>
+                <div class="placeholder-desc">Select an episode from the browse section to start streaming</div>
+            `;
+        }
+        
         this.elements.videoPlayer.style.display = 'none';
         this.elements.videoPlayer.src = '';
         
@@ -2981,6 +3263,17 @@ class SoraApp {
             this.log(`Enhanced episode click: ${url}`, 'info');
             this.log(`User functions status: ${!!this.userFunctions}`, 'info');
             
+            // DEBUG: Check element state BEFORE episode processing
+            this.log('=== ELEMENTS STATE BEFORE EPISODE LOADING ===', 'info');
+            this.log(`Plyr wrapper exists: ${!!this.elements.plyrWrapper}`, 'info');
+            this.log(`Video player exists: ${!!this.elements.videoPlayer}`, 'info');
+            this.log(`Plyr instance exists: ${!!this.player}`, 'info');
+            if (this.elements.plyrWrapper) {
+                const wrapperStyle = window.getComputedStyle(this.elements.plyrWrapper);
+                this.log(`Plyr wrapper display BEFORE: ${wrapperStyle.display}`, 'info');
+                this.log(`Plyr wrapper visibility BEFORE: ${wrapperStyle.visibility}`, 'info');
+            }
+            
             // Always navigate to player section first
             this.showSection('player');
             
@@ -2993,6 +3286,36 @@ class SoraApp {
                 this.log(`Available user functions: ${this.userFunctions ? Object.keys(this.userFunctions) : 'none'}`, 'info');
                 await this.handleEpisodeClick(url);
             }
+            
+            // DEBUG: Check element state AFTER episode processing
+            this.log('=== ELEMENTS STATE AFTER EPISODE LOADING ===', 'info');
+            this.log(`Plyr wrapper exists: ${!!this.elements.plyrWrapper}`, 'info');
+            this.log(`Video player exists: ${!!this.elements.videoPlayer}`, 'info');
+            this.log(`Plyr instance exists: ${!!this.player}`, 'info');
+            if (this.elements.plyrWrapper) {
+                const wrapperStyle = window.getComputedStyle(this.elements.plyrWrapper);
+                this.log(`Plyr wrapper display AFTER: ${wrapperStyle.display}`, 'info');
+                this.log(`Plyr wrapper visibility AFTER: ${wrapperStyle.visibility}`, 'info');
+            } else {
+                this.log('❌ PLYR WRAPPER LOST DURING EPISODE LOADING!', 'error');
+                // Try to recover the wrapper
+                const foundWrapper = document.getElementById('plyr-wrapper');
+                if (foundWrapper) {
+                    this.log('🔧 Recovering plyr-wrapper reference', 'info');
+                    this.elements.plyrWrapper = foundWrapper;
+                    // Force it visible immediately
+                    foundWrapper.style.cssText = 'display: block !important; visibility: visible !important;';
+                } else {
+                    this.log('❌ plyr-wrapper element completely missing from DOM!', 'error');
+                }
+            }
+            
+            // Auto-force visible after episode loading
+            this.log('🚀 Auto-forcing player visible after episode load...', 'info');
+            setTimeout(() => {
+                this.forcePlayerVisible();
+            }, 100);
+            
             this.log(`=== ENHANCED EPISODE CLICK END ===`, 'info');
         } catch (error) {
             this.log(`Enhanced episode handling failed: ${error.message}`, 'error');
@@ -3536,155 +3859,75 @@ class SoraApp {
     // Enhanced episode playing with Plyr integration (Sora WebUI pattern)
     async playEpisodeEnhanced(episodeUrl) {
         try {
+            this.log(`=== EPISODE PLAYBACK DEBUG ===`, 'info');
             this.log(`Playing episode with enhanced method: ${episodeUrl}`, 'info');
             
             // Extract stream data
+            this.log('Extracting stream data...', 'info');
             const streamData = await this.userFunctions.extractStreamUrl(episodeUrl);
+            this.log(`Raw stream data: ${JSON.stringify(streamData)}`, 'info');
             
             if (!streamData) {
                 throw new Error('No stream URL found');
             }
             
             // Parse with enhanced softsub support
+            this.log('Parsing stream data...', 'info');
             const parsedStreams = this.parseEnhancedStreamData(streamData);
-            
-            // Destroy existing player for clean setup
-            if (this.player) {
-                this.player.destroy();
-                this.player = null;
-            }
-            
-            // Clear existing HLS instance
-            if (this.hls) {
-                this.hls.destroy();
-                this.hls = null;
-            }
-            
-            // Initialize enhanced Plyr with Netflix-style configuration
-            this.player = new Plyr(this.elements.videoPlayer, {
-                controls: [
-                    'play-large', 'play', 'progress', 'current-time', 
-                    'mute', 'volume', 'airplay', 'settings', 'fullscreen'
-                ],
-                settings: ['quality', 'speed'],
-                playsinline: false,
-                keyboard: { focused: true, global: true },
-                tooltips: { controls: true, seek: true }
-            });
+            this.log(`Parsed streams: ${JSON.stringify(parsedStreams)}`, 'info');
             
             // Get first stream and subtitles
             const stream = parsedStreams.streams[0];
             const subtitles = parsedStreams.subtitles?.[0];
             
-            this.log(`Loading stream: ${stream.url}`, 'info');
+            this.log(`Selected stream URL: ${stream.url}`, 'info');
+            this.log(`Selected stream type: ${this.getVideoMimeType(stream.url)}`, 'info');
             if (subtitles) {
-                this.log(`Loading subtitles: ${subtitles.url}`, 'info');
+                this.log(`Selected subtitles: ${subtitles.url}`, 'info');
             }
             
-            // Clear existing tracks
-            this.elements.videoPlayer.querySelectorAll('track').forEach(track => track.remove());
+            // Use official Plyr .source setter (following documentation)
+            const plyrSource = {
+                type: 'video',
+                title: stream.title || 'Video Stream',
+                sources: [{
+                    src: stream.url,
+                    type: this.getVideoMimeType(stream.url),
+                    size: stream.quality || 720
+                }]
+            };
             
-            // Add subtitles if available (Sora WebUI pattern)
+            // Add subtitles if available
             if (subtitles) {
-                try {
-                    const subsResponse = await this.soraFetch(subtitles.url);
-                    const subsBlob = new Blob([subsResponse], { type: 'text/vtt' });
-                    const subsBlobUrl = URL.createObjectURL(subsBlob);
-                    
-                    const track = document.createElement('track');
-                    track.src = subsBlobUrl;
-                    track.kind = 'subtitles';
-                    track.srclang = subtitles.language || 'en';
-                    track.label = subtitles.label || 'English';
-                    track.default = true;
-                    this.elements.videoPlayer.appendChild(track);
-                    
-                    this.log('Enhanced subtitles loaded successfully', 'success');
-                } catch (subsError) {
-                    this.log(`Subtitle loading failed: ${subsError.message}`, 'warning');
-                }
+                plyrSource.tracks = [{
+                    kind: 'captions',
+                    label: subtitles.label || 'English',
+                    srclang: subtitles.language || 'en',
+                    src: subtitles.url,
+                    default: true
+                }];
             }
             
-            // Enhanced stream loading based on type
-            if (stream.url.includes('.mp4?') || stream.url.match(/\.(mp4|mkv|webm|avi)(\?|$)/i)) {
-                // Direct video file
-                this.log('Loading direct video file', 'info');
-                this.elements.videoPlayer.src = stream.url;
-                
-                this.elements.videoPlayer.addEventListener('loadedmetadata', () => {
-                    this.log('Direct video metadata loaded', 'success');
-                    this.showPlayerContent('Video Stream', stream.url);
-                });
-                
-            } else if (stream.url.includes('.m3u8')) {
-                // HLS stream
-                this.log('Loading HLS stream with enhanced configuration', 'info');
-                
-                if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                    this.hls = new Hls({
-                        debug: false,
-                        enableWorker: true,
-                        lowLatencyMode: false,
-                        backBufferLength: 90,
-                        xhrSetup: (xhr, url) => {
-                            // Apply CORS proxy if configured
-                            let corsProxy = localStorage.getItem("corsProxy") || "";
-                            this.log(`HLS request: ${corsProxy ? 'via proxy' : 'direct'}`, 'info');
-                            
-                            // Apply stream headers
-                            const headers = stream.headers || {};
-                            Object.keys(headers).forEach(headerName => {
-                                try {
-                                    xhr.setRequestHeader(headerName, headers[headerName]);
-                                } catch (error) {
-                                    this.log(`HLS header skipped: ${headerName}`, 'warning');
-                                }
-                            });
-                        }
-                    });
-                    
-                    this.hls.loadSource(stream.url);
-                    this.hls.attachMedia(this.elements.videoPlayer);
-                    
-                    this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                        this.log('HLS manifest parsed successfully', 'success');
-                        this.showPlayerContent('HLS Stream', stream.url);
-                    });
-                    
-                    this.hls.on(Hls.Events.ERROR, (event, data) => {
-                        this.log(`HLS Error: ${data.type} - ${data.details}`, 'error');
-                        if (data.fatal) {
-                            this.fallbackToDirectVideoElement(stream.url, subtitles?.url, 'HLS Stream');
-                        }
-                    });
-                    
-                } else if (this.elements.videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-                    // Native HLS support
-                    this.elements.videoPlayer.src = stream.url;
-                    this.elements.videoPlayer.addEventListener('loadedmetadata', () => {
-                        this.log('Native HLS metadata loaded', 'success');
-                        this.showPlayerContent('HLS Stream', stream.url);
-                    });
-                } else {
-                    throw new Error('HLS not supported in this browser');
-                }
-            } else {
-                // Generic stream
-                this.elements.videoPlayer.src = stream.url;
-                this.showPlayerContent('Video Stream', stream.url);
-            }
+            this.log(`Plyr source object: ${JSON.stringify(plyrSource)}`, 'info');
             
-            // Use showPlayerContent to handle display logic
-            this.showPlayerContent('Video Stream', stream.url);
+            // Set source using official Plyr API
+            this.log('Setting Plyr source...', 'info');
+            this.player.source = plyrSource;
+            this.log('Plyr source set successfully', 'success');
+            
+            // Show player content
+            this.showPlayerContent(stream.title || 'Video Stream', stream.url);
             
             // Remove loading indicator
             const loadingDiv = this.elements.streamDiv.querySelector('.stream-loading');
             if (loadingDiv) loadingDiv.remove();
             
-            this.log('Enhanced episode playback completed successfully', 'success');
+            this.log('=== EPISODE PLAYBACK COMPLETE ===', 'success');
             
         } catch (error) {
-            this.log(`Enhanced episode playback failed: ${error.message}`, 'error');
+            this.log(`=== EPISODE PLAYBACK ERROR ===`, 'error');
+            this.log(`Error: ${error.message}`, 'error');
+            this.log(`Stack: ${error.stack}`, 'error');
             this.showPlayerError(`Stream Error: ${error.message}`);
         }
     }

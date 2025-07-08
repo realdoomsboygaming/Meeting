@@ -369,14 +369,11 @@
                             <div class="placeholder-desc">Select an episode from the browse section to start streaming</div>
                         </div>
                         
-                        <!-- Plyr Video Player -->
+                        <!-- Plyr Video Player (Official Implementation) -->
                         <div class="plyr-wrapper" id="plyr-wrapper" style="display: none;">
-                            <div class="plyr-container">
-                                <video id="video-player" class="video-player" crossorigin playsinline aria-label="Video player">
-                                    <source src="" type="video/mp4" />
-                                    <!-- Captions track will be added dynamically -->
-                                </video>
-                            </div>
+                            <video id="player" controls playsinline crossorigin aria-label="Video player">
+                                <!-- Sources will be set dynamically via Plyr .source setter -->
+                            </video>
                         </div>
                         
                         <!-- Player Info Panel -->
