@@ -283,14 +283,16 @@ class SoraApp {
 
     // Initialize module management system
     initializeModuleManagement() {
-        // Wait for moduleManager to be available
-        if (typeof moduleManager === 'undefined') {
-            setTimeout(() => this.initializeModuleManagement(), 100);
-            return;
-        }
-        
         this.updateModulesList();
+        this.updateSelectedModuleInfo();
         this.checkForSelectedModule();
+        
+        // Add mobile storage monitoring
+        this.updateStorageStatus();
+        
+        // Monitor storage changes for mobile feedback
+        this.setupStorageMonitoring();
+        
         this.log('Module management system ready.', 'success');
     }
 
@@ -3955,6 +3957,98 @@ class SoraApp {
                 status: '🔒 Setup CORS'
             };
         }
+    }
+
+    // Update storage status display for mobile users
+    updateStorageStatus() {
+        try {
+            const storageInfo = moduleManager.getStorageInfo();
+            
+            // Update stats display
+            const modulesCount = document.getElementById('modules-count');
+            if (modulesCount) {
+                modulesCount.textContent = moduleManager.getAllModules().length;
+            }
+            
+            // Add storage usage info to the modules section
+            let storageStatusDiv = document.getElementById('storage-status');
+            if (!storageStatusDiv) {
+                // Create storage status element
+                const modulesList = document.getElementById('modules-list');
+                if (modulesList && modulesList.parentNode) {
+                    storageStatusDiv = document.createElement('div');
+                    storageStatusDiv.id = 'storage-status';
+                    storageStatusDiv.className = 'storage-status';
+                    modulesList.parentNode.insertBefore(storageStatusDiv, modulesList.nextSibling);
+                }
+            }
+            
+            if (storageStatusDiv) {
+                if (!storageInfo.available) {
+                    storageStatusDiv.innerHTML = `
+                        <div class="storage-warning">
+                            <span class="warning-icon">⚠️</span>
+                            <strong>Storage Unavailable</strong>
+                            <p>Modules will not persist (private browsing mode?)</p>
+                        </div>
+                    `;
+                } else if (storageInfo.quotaExceeded) {
+                    storageStatusDiv.innerHTML = `
+                        <div class="storage-error">
+                            <span class="error-icon">🚫</span>
+                            <strong>Storage Almost Full (${storageInfo.usagePercentage}%)</strong>
+                            <p>Consider removing old modules to free space</p>
+                            <button onclick="moduleManager.performStorageCleanup(); app.updateStorageStatus();" class="cleanup-btn">
+                                Clean Up Old Modules
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    const usageColor = storageInfo.usagePercentage > 70 ? '#ff6b6b' : 
+                                     storageInfo.usagePercentage > 50 ? '#ffa500' : '#4ecdc4';
+                    
+                    storageStatusDiv.innerHTML = `
+                        <div class="storage-info">
+                            <span class="storage-icon">💾</span>
+                            <div class="storage-details">
+                                <div class="storage-text">
+                                    Storage: ${Math.round(storageInfo.usedSpace / 1024)}KB used (${storageInfo.usagePercentage}%)
+                                </div>
+                                <div class="storage-bar">
+                                    <div class="storage-progress" style="width: ${storageInfo.usagePercentage}%; background-color: ${usageColor};"></div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
+        } catch (error) {
+            console.error('[SoraApp] Error updating storage status:', error);
+        }
+    }
+
+    // Setup storage monitoring for mobile feedback
+    setupStorageMonitoring() {
+        // Monitor localStorage changes (for other tabs/windows)
+        window.addEventListener('storage', (event) => {
+            if (event.key === 'sora_modules' || event.key === 'sora_selected_module') {
+                this.log('Module storage updated from another tab', 'info');
+                this.updateModulesList();
+                this.updateSelectedModuleInfo();
+                this.updateStorageStatus();
+            }
+        });
+        
+        // Monitor app visibility changes (mobile browsers suspend tabs)
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                // App became visible again - refresh storage status
+                setTimeout(() => {
+                    this.updateStorageStatus();
+                }, 100);
+            }
+        });
     }
 }
 

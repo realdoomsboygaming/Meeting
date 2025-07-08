@@ -11,6 +11,12 @@ class ModuleManager {
     // Load modules from localStorage
     loadStoredModules() {
         try {
+            // Check localStorage availability first (mobile browsers can disable it)
+            if (!this.isStorageAvailable()) {
+                console.warn('[ModuleManager] localStorage not available, using memory-only storage');
+                return;
+            }
+
             const storedModules = localStorage.getItem('sora_modules');
             const selectedModule = localStorage.getItem('sora_selected_module');
             
@@ -28,20 +34,192 @@ class ModuleManager {
             }
         } catch (error) {
             console.error('[ModuleManager] Error loading stored modules:', error);
+            // On mobile, storage might be corrupted - try to clear and restart
+            this.handleStorageError('load', error);
         }
     }
 
-    // Save modules to localStorage
+    // Save modules to localStorage with mobile-specific error handling
     saveModules() {
         try {
+            if (!this.isStorageAvailable()) {
+                console.warn('[ModuleManager] localStorage not available, modules will not persist');
+                return false;
+            }
+
+            // Check storage quota before saving (important for mobile)
+            const storageInfo = this.getStorageInfo();
+            if (storageInfo.quotaExceeded) {
+                console.warn('[ModuleManager] Storage quota exceeded, attempting cleanup');
+                this.performStorageCleanup();
+            }
+
             const modulesData = Object.fromEntries(this.modules);
-            localStorage.setItem('sora_modules', JSON.stringify(modulesData));
+            const moduleJson = JSON.stringify(modulesData);
+            
+            // Check if the data size is reasonable for mobile (under 5MB total)
+            if (moduleJson.length > 5 * 1024 * 1024) {
+                console.warn('[ModuleManager] Module data very large, consider removing unused modules');
+            }
+
+            localStorage.setItem('sora_modules', moduleJson);
             if (this.selectedModuleId) {
                 localStorage.setItem('sora_selected_module', this.selectedModuleId);
             }
-            console.log(`[ModuleManager] Saved ${this.modules.size} modules to storage`);
+            
+            console.log(`[ModuleManager] Saved ${this.modules.size} modules to storage (${Math.round(moduleJson.length / 1024)}KB)`);
+            return true;
         } catch (error) {
             console.error('[ModuleManager] Error saving modules:', error);
+            return this.handleStorageError('save', error);
+        }
+    }
+
+    // Check if localStorage is available (mobile browsers may disable it)
+    isStorageAvailable() {
+        try {
+            const test = '__storage_test__';
+            localStorage.setItem(test, test);
+            localStorage.removeItem(test);
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    // Get storage usage information (important for mobile quota management)
+    getStorageInfo() {
+        const info = {
+            available: this.isStorageAvailable(),
+            quotaExceeded: false,
+            usedSpace: 0,
+            totalSpace: 0,
+            usagePercentage: 0
+        };
+
+        if (!info.available) {
+            return info;
+        }
+
+        try {
+            // Calculate current usage
+            let used = 0;
+            for (let key in localStorage) {
+                if (localStorage.hasOwnProperty(key)) {
+                    used += localStorage[key].length;
+                }
+            }
+            info.usedSpace = used;
+
+            // Mobile browsers typically have 5-10MB localStorage limit
+            // We'll use 5MB as conservative estimate
+            info.totalSpace = 5 * 1024 * 1024; // 5MB in bytes
+            info.usagePercentage = Math.round((used / info.totalSpace) * 100);
+            info.quotaExceeded = info.usagePercentage > 90; // Warning at 90%
+
+        } catch (error) {
+            console.warn('[ModuleManager] Could not calculate storage usage:', error);
+        }
+
+        return info;
+    }
+
+    // Handle storage errors with mobile-specific recovery
+    handleStorageError(operation, error) {
+        if (error.name === 'QuotaExceededError' || error.code === 22) {
+            console.error('[ModuleManager] Storage quota exceeded - common on mobile browsers');
+            
+            // Try automatic cleanup
+            if (operation === 'save') {
+                const cleaned = this.performStorageCleanup();
+                if (cleaned) {
+                    try {
+                        return this.saveModules(); // Retry save after cleanup
+                    } catch (retryError) {
+                        console.error('[ModuleManager] Save failed even after cleanup:', retryError);
+                    }
+                }
+            }
+            
+            // Show user-friendly error for mobile
+            if (window.app && window.app.log) {
+                window.app.log('Storage full! Please remove some modules or clear browser data.', 'error');
+            }
+            return false;
+        }
+
+        if (error.name === 'SecurityError') {
+            console.error('[ModuleManager] Storage access denied - possibly private browsing mode');
+            if (window.app && window.app.log) {
+                window.app.log('Storage disabled. Modules will not persist in private browsing mode.', 'warning');
+            }
+            return false;
+        }
+
+        // For corrupt storage, try to clear and recover
+        if (operation === 'load' && error instanceof SyntaxError) {
+            console.warn('[ModuleManager] Storage appears corrupted, clearing and starting fresh');
+            try {
+                localStorage.removeItem('sora_modules');
+                localStorage.removeItem('sora_selected_module');
+                return true;
+            } catch (clearError) {
+                console.error('[ModuleManager] Could not clear corrupted storage:', clearError);
+            }
+        }
+
+        return false;
+    }
+
+    // Perform storage cleanup to free space (mobile-optimized)
+    performStorageCleanup() {
+        try {
+            console.log('[ModuleManager] Performing storage cleanup for mobile device...');
+            
+            // Remove oldest modules first (LRU cleanup)
+            const modules = Array.from(this.modules.entries());
+            if (modules.length <= 1) {
+                console.log('[ModuleManager] Cannot cleanup - only one module or none');
+                return false;
+            }
+
+            // Sort by last access time (or import date if no access time)
+            modules.sort((a, b) => {
+                const aTime = a[1].metadata.lastAccess || a[1].metadata.importDate || '2000-01-01';
+                const bTime = b[1].metadata.lastAccess || b[1].metadata.importDate || '2000-01-01';
+                return new Date(aTime) - new Date(bTime);
+            });
+
+            // Remove oldest module (keep at least the selected one)
+            const oldestId = modules[0][0];
+            if (oldestId !== this.selectedModuleId) {
+                this.modules.delete(oldestId);
+                console.log(`[ModuleManager] Removed oldest module: ${modules[0][1].metadata.sourceName}`);
+                
+                if (window.app && window.app.log) {
+                    window.app.log(`Cleaned up old module: ${modules[0][1].metadata.sourceName}`, 'info');
+                }
+                return true;
+            }
+
+            console.log('[ModuleManager] Could not cleanup - oldest module is currently selected');
+            return false;
+        } catch (error) {
+            console.error('[ModuleManager] Cleanup failed:', error);
+            return false;
+        }
+    }
+
+    // Update module access time for LRU tracking
+    updateModuleAccess(moduleId) {
+        try {
+            const module = this.modules.get(moduleId);
+            if (module) {
+                module.metadata.lastAccess = new Date().toISOString();
+                this.saveModules(); // Save updated access time
+            }
+        } catch (error) {
+            console.warn('[ModuleManager] Could not update module access time:', error);
         }
     }
 
@@ -136,7 +314,11 @@ class ModuleManager {
 
             // Store module
             this.modules.set(moduleData.id, moduleData);
-            this.saveModules();
+            const saved = this.saveModules();
+            
+            if (!saved) {
+                throw new Error('Failed to save module to storage');
+            }
 
             console.log(`[ModuleManager] Added module: ${moduleData.metadata.sourceName} v${moduleData.metadata.version}`);
             
@@ -166,7 +348,9 @@ class ModuleManager {
             // If this was the selected module, clear selection
             if (this.selectedModuleId === moduleId) {
                 this.selectedModuleId = null;
-                localStorage.removeItem('sora_selected_module');
+                if (this.isStorageAvailable()) {
+                    localStorage.removeItem('sora_selected_module');
+                }
             }
 
             this.saveModules();
@@ -179,7 +363,7 @@ class ModuleManager {
         }
     }
 
-    // Select module
+    // Select module with access tracking
     selectModule(moduleId) {
         try {
             if (!this.modules.has(moduleId)) {
@@ -187,7 +371,13 @@ class ModuleManager {
             }
 
             this.selectedModuleId = moduleId;
-            localStorage.setItem('sora_selected_module', moduleId);
+            
+            // Update access time for LRU tracking
+            this.updateModuleAccess(moduleId);
+            
+            if (this.isStorageAvailable()) {
+                localStorage.setItem('sora_selected_module', moduleId);
+            }
             
             const module = this.modules.get(moduleId);
             console.log(`[ModuleManager] Selected module: ${module.metadata.sourceName}`);
