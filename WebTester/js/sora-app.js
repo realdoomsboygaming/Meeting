@@ -3,33 +3,27 @@
 
 class SoraApp {
     constructor() {
+        this.player = null;
         this.worker = null;
-        this.moduleConfig = {};
-        this.userFunctions = {};
-        this.requestId = 0;
-        this.pendingRequests = new Map();
-        this.currentResults = [];
-        this.currentPage = 0;
-        this.RESULTS_PER_PAGE = 20;
+        this.modules = new Map();
+        this.moduleCache = new Map();
+        this.searchResults = [];
+        this.currentPage = 1;
+        this.itemsPerPage = 20;
+        this.isSearching = false;
+        this.totalResults = 0;
+        this.currentQuery = '';
+        this.searchFilters = {};
+        this.lastSearchTime = 0;
+        this.isInitialized = false;
+        this.proxyTested = false;
+        this.playerInitialized = false;
         
         this.initializeElements();
         this.initializeWorker();
         this.bindEvents();
-        
-        // Initialize module management
-        this.initializeModuleManagement();
-        
-        // Initialize default CORS proxy for seamless streaming
+        this.initializeNavigationHandlers();
         this.initializeDefaultCorsProxy();
-        
-        // Initialize CORS detection for advanced users who want alternatives
-        this.corsExtensionDetected = false;
-        this.detectCorsExtension();
-        
-        // Initialize Netflix-style navigation
-        setTimeout(() => {
-            this.initializeNavigationHandlers();
-        }, 100);
     }
 
     initializeElements() {
@@ -246,6 +240,22 @@ class SoraApp {
             clearTimeout(searchTimeout);
             // Uncomment for live search: searchTimeout = setTimeout(() => this.performSearchEnhanced(), 1000);
         });
+
+        // Proxy controls
+        const proxyTestBtn = document.getElementById('proxy-test-btn');
+        const proxySettingsBtn = document.getElementById('proxy-settings-btn');
+        
+        if (proxyTestBtn) {
+            proxyTestBtn.addEventListener('click', () => {
+                this.testCorsProxyAccess();
+            });
+        }
+        
+        if (proxySettingsBtn) {
+            proxySettingsBtn.addEventListener('click', () => {
+                this.showCorsOptions();
+            });
+        }
     }
 
     // Initialize module management system
@@ -3391,127 +3401,13 @@ class SoraApp {
         }
     }
 
-    async detectCorsExtension(forceReset = false) {
-        try {
-            // Force reset if requested (when user manually retests)
-            if (forceReset) {
-                this.corsExtensionDetected = false;
-                localStorage.removeItem('corsDetectionMethod');
-                this.showCorsTestingState();
-            }
-            
-            // Check if user has configured a CORS proxy
-            const corsProxy = localStorage.getItem("corsProxy");
-            if (corsProxy) {
-                this.corsExtensionDetected = true;
-                this.showCorsStatus(true);
-                return;
-            }
-            
-            // Comprehensive CORS extension detection
-            // Test multiple methods and URLs to determine if CORS extensions are working
-            let corsDetected = false;
-            let detectionMethod = '';
-            
-            // Test 1: Try XMLHttpRequest with a simple GET request
-            try {
-                await new Promise((resolve, reject) => {
-                    const xhr = new XMLHttpRequest();
-                    xhr.timeout = 5000;
-                    xhr.open('GET', 'https://httpbin.org/get', true);
-                    
-                    xhr.onload = () => {
-                        if (xhr.status === 200) {
-                            corsDetected = true;
-                            detectionMethod = 'XMLHttpRequest';
-                            resolve();
-                        } else {
-                            reject(new Error(`HTTP ${xhr.status}`));
-                        }
-                    };
-                    
-                    xhr.onerror = () => reject(new Error('Network error'));
-                    xhr.ontimeout = () => reject(new Error('Timeout'));
-                    
-                    try {
-                        xhr.send();
-                    } catch (e) {
-                        reject(e);
-                    }
-                });
-            } catch (error) {
-                // XMLHttpRequest failed, continue testing
-            }
-            
-            // Test 2: Try fetch if XMLHttpRequest failed
-            if (!corsDetected) {
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 5000);
-                    
-                    const response = await fetch('https://httpbin.org/get', {
-                        method: 'GET',
-                        signal: controller.signal
-                    });
-                    
-                    clearTimeout(timeoutId);
-                    
-                    if (response.ok) {
-                        corsDetected = true;
-                        detectionMethod = 'fetch';
-                    }
-                } catch (error) {
-                    // Fetch also failed
-                }
-            }
-            
-            // Test 3: Try a different URL in case httpbin.org is blocked
-            if (!corsDetected) {
-                try {
-                    await new Promise((resolve, reject) => {
-                        const xhr = new XMLHttpRequest();
-                        xhr.timeout = 5000;
-                        xhr.open('GET', 'https://api.github.com/zen', true);
-                        
-                        xhr.onload = () => {
-                            if (xhr.status === 200) {
-                                corsDetected = true;
-                                detectionMethod = 'XMLHttpRequest (GitHub API)';
-                                resolve();
-                            } else {
-                                reject(new Error(`HTTP ${xhr.status}`));
-                            }
-                        };
-                        
-                        xhr.onerror = () => reject(new Error('Network error'));
-                        xhr.ontimeout = () => reject(new Error('Timeout'));
-                        
-                        try {
-                            xhr.send();
-                        } catch (e) {
-                            reject(e);
-                        }
-                    });
-                } catch (error) {
-                    // Final test failed
-                }
-            }
-            
-            // Update detection results
-            this.corsExtensionDetected = corsDetected;
-            
-            if (corsDetected) {
-                localStorage.setItem('corsDetectionMethod', detectionMethod);
-            } else {
-                localStorage.removeItem('corsDetectionMethod');
-            }
-            
-            // Always update the status display with final results
-            this.showCorsStatus(this.corsExtensionDetected);
-            
-        } catch (error) {
-            this.corsExtensionDetected = false;
-            localStorage.removeItem('corsDetectionMethod');
+    checkProxyConfiguration() {
+        const corsProxy = localStorage.getItem("corsProxy");
+        if (corsProxy && corsProxy.trim() !== "") {
+            this.proxyTested = true;
+            this.showCorsStatus(true);
+        } else {
+            this.proxyTested = false;
             this.showCorsStatus(false);
         }
     }
@@ -3588,37 +3484,28 @@ class SoraApp {
     setupPeriodicCorsDetection() {
         // Check for CORS extensions every 30 seconds, but only if not already detected
         this.corsDetectionInterval = setInterval(() => {
-            // Only re-detect if no CORS method is currently active
+            // Periodic check for proxy configuration
             const corsProxy = localStorage.getItem("corsProxy");
-            if (!this.corsExtensionDetected && !corsProxy) {
-                this.log('🔄 Periodic CORS check...', 'info');
-                this.detectCorsExtension();
+            if (!corsProxy) {
+                this.log('🔄 No proxy configured - streaming may be limited', 'warning');
             }
-        }, 30000);
+        }, 60000); // Check every minute
         
-        // Also check when window regains focus (user might have installed extension)
+        // Check proxy configuration when window regains focus
         let focusCheckTimeout;
         window.addEventListener('focus', () => {
             clearTimeout(focusCheckTimeout);
             focusCheckTimeout = setTimeout(() => {
-                const corsProxy = localStorage.getItem("corsProxy");
-                if (!this.corsExtensionDetected && !corsProxy) {
-                    this.log('🔄 Window focus CORS check...', 'info');
-                    this.detectCorsExtension();
-                }
-            }, 1000); // Wait 1 second after focus to let extension initialize
+                this.checkProxyConfiguration();
+            }, 1000);
         });
         
-        // Check when visibility changes (mobile/desktop tab switching)
+        // Check proxy when visibility changes
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
                 setTimeout(() => {
-                    const corsProxy = localStorage.getItem("corsProxy");
-                    if (!this.corsExtensionDetected && !corsProxy) {
-                        this.log('🔄 Visibility change CORS check...', 'info');
-                        this.detectCorsExtension();
-                    }
-                }, 1500); // Wait 1.5 seconds for mobile browsers
+                    this.checkProxyConfiguration();
+                }, 1000);
             }
         });
     }
@@ -3633,41 +3520,20 @@ class SoraApp {
             // Enhanced URL cleaning (Sora WebUI pattern)
             const cleanUrl = this.cleanProxyUrl(url);
             
-            // If CORS extension is detected and no proxy is configured, use native fetch
-            if (this.corsExtensionDetected && !usingProxy) {
-                try {
-                    const fetchOptions = {
-                        method: options.method || "GET",
-                        mode: 'cors',
-                        credentials: 'omit',
-                        headers: options.headers || {}
-                    };
-                    
-                    if (options.body) {
-                        fetchOptions.body = options.body;
-                    }
-                    
-                    const response = await fetch(cleanUrl, fetchOptions);
-                    
-                    if (response.ok) {
-                        // Handle different response types
-                        if (url.match(/\.(mp4|webm|m4v|mov|avi|mkv|mp3|m4a|ogg|flv|ts|jpg|jpeg|png|gif|bmp|webp|svg|ico)$/i)) {
-                            const arrayBuffer = await response.arrayBuffer();
-                            resolve(arrayBuffer);
-                        } else {
-                            const text = await response.text();
-                            resolve(text);
-                        }
-                    } else {
-                        reject(`HTTP ${response.status}: ${response.statusText}`);
-                    }
-                } catch (error) {
-                    reject(`CORS Extension fetch failed: ${error.message}`);
-                }
-                return;
-            }
+            // Check if this is an origin-blocking service that requires proxy even with CORS extension
+            const isOriginBlockingService = cleanUrl.includes('pixeldrain.net') || 
+                                          cleanUrl.includes('vidoza.') || 
+                                          cleanUrl.includes('doodstream.') ||
+                                          cleanUrl.includes('streamtape.') ||
+                                          cleanUrl.includes('mediafire.') ||
+                                          cleanUrl.includes('mega.nz');
             
-            // Use XMLHttpRequest for proxy mode or fallback
+            // Force proxy for origin-blocking services, regardless of CORS extension
+            const shouldUseProxy = usingProxy || isOriginBlockingService;
+            
+            // Use XMLHttpRequest with proxy for all requests
+            
+            // Use XMLHttpRequest for proxy mode or origin-blocking services
             const xhr = new XMLHttpRequest();
             const method = options.method || "GET";
             
@@ -3680,19 +3546,26 @@ class SoraApp {
                 xhr.responseType = 'arraybuffer';
             }
             
-            // Apply CORS proxy with proper URL format for corsproxy.io
+            // Apply CORS proxy with proper URL format
             let finalUrl;
-            if (corsProxy) {
+            if (shouldUseProxy && corsProxy) {
                 if (corsProxy.includes('corsproxy.io')) {
                     // corsproxy.io expects raw URL after the ?
                     finalUrl = corsProxy + cleanUrl;
                 } else if (corsProxy.includes('allorigins.win')) {
                     // allorigins expects encoded URL
                     finalUrl = corsProxy + encodeURIComponent(cleanUrl);
+                } else if (corsProxy.includes('cloudflare-cors-anywhere')) {
+                    // cloudflare workers expect raw URL after the ?
+                    finalUrl = corsProxy + cleanUrl;
                 } else {
                     // Other proxies use direct concatenation
                     finalUrl = corsProxy + cleanUrl;
                 }
+            } else if (isOriginBlockingService && !corsProxy) {
+                // No proxy configured but origin-blocking service detected
+                reject(`Origin-blocking service detected (${cleanUrl}). Please configure a CORS proxy to access this content.`);
+                return;
             } else {
                 finalUrl = cleanUrl;
             }
@@ -3728,16 +3601,16 @@ class SoraApp {
                         resolve(xhr.responseText);
                     }
                 } else {
-                    this.handleEnhancedError(xhr, url, usingProxy, reject);
+                    this.handleEnhancedError(xhr, url, shouldUseProxy, reject);
                 }
             };
             
             xhr.onerror = () => {
-                this.handleEnhancedError(xhr, url, usingProxy, reject);
+                this.handleEnhancedError(xhr, url, shouldUseProxy, reject);
             };
             
             xhr.ontimeout = () => {
-                if (usingProxy) {
+                if (shouldUseProxy) {
                     reject(`Proxy timeout: Request took longer than ${xhr.timeout}ms`);
                 } else {
                     reject(`Request timeout: Consider using a CORS proxy for large files`);
@@ -3965,52 +3838,54 @@ class SoraApp {
         const isDefaultProxy = corsProxy === 'https://corsproxy.io/?';
         
         modal.innerHTML = `
-            <h3 style="margin: 0 0 1rem 0; color: var(--netflix-red);">🚫 CORS Configuration Issue</h3>
-            <p style="margin: 0 0 1rem 0; line-height: 1.5;">A CORS proxy should be automatically configured for seamless streaming. If you're seeing this, there may be an issue with the default setup.</p>
+            <h3 style="margin: 0 0 1rem 0; color: var(--netflix-red);">🚀 Setup Your Own CORS Proxy</h3>
+            <p style="margin: 0 0 1rem 0; line-height: 1.5;">For maximum reliability, create your own Cloudflare CORS proxy. It's free and takes just a few minutes!</p>
             
-            <div style="margin: 1rem 0; padding: 0.75rem; background: rgba(0, 191, 255, 0.1); border-radius: 8px; border-left: 3px solid #00bfff;">
-                <h4 style="margin: 0 0 0.5rem 0; color: #00bfff;">🚀 Default Solution</h4>
-                <p style="margin: 0.5rem 0; font-size: 0.85rem;">We use <strong>corsproxy.io</strong> by default to handle all CORS issues automatically, including origin blocking from Pixeldrain, Vidoza, and Doodstream.</p>
+            <div style="margin: 1rem 0; padding: 1rem; background: rgba(0, 191, 255, 0.1); border-radius: 8px; border-left: 3px solid #00bfff;">
+                <h4 style="margin: 0 0 0.5rem 0; color: #00bfff;">📋 Quick Setup Instructions</h4>
+                <ol style="font-size: 0.9rem; margin: 0; padding-left: 1.5rem; line-height: 1.5;">
+                    <li>Go to <a href="https://workers.cloudflare.com/" target="_blank" style="color: #00bfff;">workers.cloudflare.com</a></li>
+                    <li>Sign up for a free Cloudflare account</li>
+                    <li>Create a new Worker</li>
+                    <li>Replace the default code with the code from: <br>
+                        <a href="https://github.com/Zibri/cloudflare-cors-anywhere" target="_blank" style="color: #00bfff; word-break: break-all;">
+                            github.com/Zibri/cloudflare-cors-anywhere
+                        </a>
+                    </li>
+                    <li>Deploy your worker and copy the URL</li>
+                    <li>Add "?" to the end of your worker URL</li>
+                    <li>Use "Custom Proxy Setup" below to configure it</li>
+                </ol>
+            </div>
+            
+            <div style="margin: 1rem 0; padding: 1rem; background: rgba(255, 193, 7, 0.1); border-radius: 8px; border-left: 3px solid #ffc107;">
+                <h4 style="margin: 0 0 0.5rem 0; color: #ffc107;">⚡ Why Your Own Proxy?</h4>
+                <ul style="font-size: 0.9rem; margin: 0; padding-left: 1.5rem; line-height: 1.4;">
+                    <li>✅ No rate limits or restrictions</li>
+                    <li>✅ Better reliability and speed</li>
+                    <li>✅ Complete control over your proxy</li>
+                    <li>✅ Free Cloudflare hosting</li>
+                </ul>
+            </div>
+
+            <div style="margin: 1rem 0; padding: 1rem; background: rgba(46, 125, 50, 0.1); border-radius: 8px; border-left: 3px solid #4caf50;">
+                <h4 style="margin: 0 0 0.5rem 0; color: #4caf50;">🔧 Technical Details</h4>
+                <p style="font-size: 0.85rem; margin: 0; font-family: monospace; color: #ccc;">
+                    Source: <a href="https://github.com/Zibri/cloudflare-cors-anywhere" target="_blank" style="color: #4caf50;">Zibri/cloudflare-cors-anywhere</a><br>
+                    Guide: <a href="http://www.zibri.org/2019/07/your-own-cors-anywhere-proxy-on.html" target="_blank" style="color: #4caf50;">zibri.org CORS proxy guide</a><br>
+                    Platform: Cloudflare Workers (free tier available)
+                </p>
             </div>
             
             <div style="margin: 1rem 0; padding: 1rem; background: rgba(0, 123, 255, 0.1); border-radius: 8px; border-left: 3px solid #007bff;">
-                <h4 style="margin: 0 0 0.5rem 0; color: #007bff;">🔗 Restore Default Proxy</h4>
-                <p style="margin: 0.5rem 0; font-size: 0.9rem;">Restore the default corsproxy.io configuration:</p>
-                <button id="setup-proxy" style="margin: 0.5rem 0; padding: 0.5rem 1rem; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Restore Default Proxy</button>
-            </div>
-            
-            <div style="margin: 1rem 0; padding: 1rem; background: rgba(229, 9, 20, 0.1); border-radius: 8px; border-left: 3px solid var(--netflix-red);">
-                <h4 style="margin: 0 0 0.5rem 0; color: var(--netflix-red);">🔧 Option 2: Browser Extension (Recommended)</h4>
-                <p style="margin: 0.5rem 0; font-size: 0.9rem;">Install a CORS extension for enhanced streaming:</p>
-                
-                <div style="margin: 0.75rem 0; padding: 0.5rem; background: rgba(0, 0, 0, 0.2); border-radius: 4px;">
-                    <strong style="color: #4285f4;">🟦 Chrome Extensions:</strong>
-                    <ul style="margin: 0.25rem 0; padding-left: 1.5rem; font-size: 0.8rem;">
-                        <li><strong>"CORS Unblock"</strong> - Simple, effective</li>
-                        <li><strong>"Cross Domain - CORS"</strong> - Advanced features</li>
-                        <li><strong>"CORS Helper"</strong> - Lightweight option</li>
-                    </ul>
-                </div>
-                
-                <div style="margin: 0.75rem 0; padding: 0.5rem; background: rgba(0, 0, 0, 0.2); border-radius: 4px;">
-                    <strong style="color: #ff9500;">🟧 Firefox Extensions:</strong>
-                    <ul style="margin: 0.25rem 0; padding-left: 1.5rem; font-size: 0.8rem;">
-                        <li><strong>"CORS Everywhere"</strong> - Most popular</li>
-                        <li><strong>"CORS Toggle"</strong> - Quick enable/disable</li>
-                    </ul>
-                </div>
-                
-                <div style="margin: 0.75rem 0; padding: 0.5rem; background: rgba(0, 191, 255, 0.1); border-radius: 4px; border-left: 2px solid #00bfff;">
-                    <small style="font-size: 0.75rem; opacity: 0.9;">
-                        💡 <strong>Pro Tip:</strong> Extensions provide better header support and automatic authentication handling compared to proxies.
-                    </small>
-                </div>
-                
-                <button id="retest-cors" style="margin: 0.5rem 0; padding: 0.5rem 1rem; background: var(--netflix-red); color: white; border: none; border-radius: 4px; cursor: pointer;">I Installed Extension - Test Now</button>
+                <h4 style="margin: 0 0 0.5rem 0; color: #007bff;">🚀 Quick Start Option</h4>
+                <p style="margin: 0.5rem 0; font-size: 0.9rem;">Use our default proxy while you set up your own:</p>
+                <button id="setup-proxy" style="margin: 0.5rem 0; padding: 0.5rem 1rem; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Use Default Proxy</button>
             </div>
             
             <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
-                <button id="close-cors-dialog" style="flex: 1; padding: 0.75rem; background: #666; color: white; border: none; border-radius: 6px; cursor: pointer;">Skip For Now</button>
+                <button id="custom-proxy" style="flex: 1; padding: 0.75rem; background: #17a2b8; color: white; border: none; border-radius: 6px; cursor: pointer;">Custom Proxy Setup</button>
+                <button id="close-cors-dialog" style="flex: 1; padding: 0.75rem; background: #666; color: white; border: none; border-radius: 6px; cursor: pointer;">Close</button>
             </div>
         `;
 
@@ -4019,13 +3894,13 @@ class SoraApp {
 
         // Event handlers
         document.getElementById('setup-proxy').onclick = () => {
-            this.restoreDefaultProxy();
             document.body.removeChild(overlay);
+            this.restoreDefaultProxy();
         };
 
-        document.getElementById('retest-cors').onclick = () => {
+        document.getElementById('custom-proxy').onclick = () => {
             document.body.removeChild(overlay);
-            this.detectCorsExtension(true); // Force reset and fresh detection
+            this.setupProxy();
         };
 
         document.getElementById('close-cors-dialog').onclick = () => {
@@ -4171,99 +4046,68 @@ class SoraApp {
             background: linear-gradient(135deg, #1a1a1a, #2d2d2d);
             padding: 2rem;
             border-radius: 12px;
-            max-width: 500px;
+            max-width: 450px;
             margin: 2rem;
             color: #ffffff;
             border: 1px solid var(--netflix-red);
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
         `;
 
-        const isDefaultProxy = corsProxy === 'https://corsproxy.io/?';
+        const isDefaultProxy = corsProxy === 'https://cloudflare-cors-anywhere.realdoomsboygaming.workers.dev/?';
         
         modal.innerHTML = `
-            <h3 style="margin: 0 0 1rem 0; color: var(--netflix-red);">⚙️ CORS Proxy Management</h3>
+            <h3 style="margin: 0 0 1rem 0; color: var(--netflix-red);">⚙️ Proxy Settings</h3>
             ${corsProxy ? `
                 <div style="margin: 1rem 0; padding: 1rem; background: ${isDefaultProxy ? 'rgba(0, 191, 255, 0.1)' : 'rgba(255, 193, 7, 0.1)'}; border-radius: 8px;">
                     <h4 style="margin: 0 0 0.5rem 0; color: ${isDefaultProxy ? '#00bfff' : '#ffc107'};">
-                        ${isDefaultProxy ? '🚀 Default Proxy Active' : '🔧 Custom Proxy Active'}:
+                        ${isDefaultProxy ? '🚀 Default Proxy' : '🔧 Custom Proxy'}
                     </h4>
-                    <p style="font-family: monospace; font-size: 0.8rem; word-break: break-all;">${corsProxy}</p>
-                    ${isDefaultProxy ? 
-                        '<p style="font-size: 0.8rem; margin: 0.5rem 0 0 0; opacity: 0.9;">✅ Optimized for all streaming services including Pixeldrain</p>' : 
-                        '<p style="font-size: 0.8rem; margin: 0.5rem 0 0 0; opacity: 0.9;">⚠️ Custom proxy - test compatibility if issues occur</p>'
-                    }
+                    <p style="font-family: monospace; font-size: 0.8rem; word-break: break-all; margin: 0;">${corsProxy}</p>
                 </div>
             ` : `
                 <div style="margin: 1rem 0; padding: 1rem; background: rgba(229, 9, 20, 0.1); border-radius: 8px;">
-                    <h4 style="margin: 0 0 0.5rem 0; color: var(--netflix-red);">❌ No Proxy Configured</h4>
-                    <p style="font-size: 0.9rem;">This is unusual - a default proxy should be configured automatically.</p>
+                    <h4 style="margin: 0 0 0.5rem 0; color: var(--netflix-red);">❌ No Proxy</h4>
+                    <p style="font-size: 0.9rem; margin: 0;">Configure a proxy to enable streaming.</p>
                 </div>
             `}
             
-            <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1.5rem;">
-                <button id="retest-cors-config" style="padding: 0.75rem; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer;">🔄 Retest Configuration</button>
-                ${corsProxy ? `
-                    <button id="test-pixeldrain" style="padding: 0.75rem; background: #17a2b8; color: white; border: none; border-radius: 6px; cursor: pointer;">🧪 Test Content Access</button>
-                    ${!isDefaultProxy ? `
-                        <button id="restore-default" style="padding: 0.75rem; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer;">🚀 Restore Default Proxy</button>
-                    ` : ''}
-                    <button id="change-proxy" style="padding: 0.75rem; background: #ffa500; color: white; border: none; border-radius: 6px; cursor: pointer;">🔧 Advanced Proxy Setup</button>
-                    <button id="disable-proxy" style="padding: 0.75rem; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer;">❌ Disable Proxy</button>
-                ` : `
-                    <button id="setup-proxy-option" style="padding: 0.75rem; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer;">🚀 Restore Default Proxy</button>
-                `}
-                <button id="close-cors-options" style="padding: 0.75rem; background: #666; color: white; border: none; border-radius: 6px; cursor: pointer;">Close</button>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1.5rem;">
+                <button id="change-proxy" style="padding: 1rem; background: var(--netflix-red); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500; transition: all 0.2s;">
+                    🔧 Change Proxy URL
+                </button>
+                <button id="restore-proxy" style="padding: 1rem; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500; transition: all 0.2s;">
+                    🚀 Restore Default
+                </button>
+                <button id="setup-own-proxy" style="padding: 1rem; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500; transition: all 0.2s;">
+                    ⚡ Setup Your Own
+                </button>
             </div>
+            
+            <button id="close-proxy-settings" style="margin-top: 1rem; padding: 0.75rem; background: #666; color: white; border: none; border-radius: 6px; cursor: pointer; width: 100%;">
+                Close
+            </button>
         `;
 
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
 
         // Event handlers
-        document.getElementById('retest-cors-config').onclick = () => {
+        document.getElementById('change-proxy').onclick = () => {
             document.body.removeChild(overlay);
-            this.detectCorsExtension(true); // Force reset and fresh detection
+            this.changeProxy();
         };
 
-        if (corsProxy) {
-            const testBtn = document.getElementById('test-pixeldrain');
-            if (testBtn) {
-                testBtn.id = 'test-cors-proxy';
-                testBtn.textContent = '🧪 Test Proxy Access';
-                testBtn.onclick = () => {
-                    document.body.removeChild(overlay);
-                    this.testCorsProxyAccess();
-                };
-            }
-            // Restore default proxy button (only shown for custom proxies)
-            const restoreBtn = document.getElementById('restore-default');
-            if (restoreBtn) {
-                restoreBtn.onclick = () => {
-                    document.body.removeChild(overlay);
-                    this.restoreDefaultProxy();
-                };
-            }
-            document.getElementById('change-proxy').onclick = () => {
-                document.body.removeChild(overlay);
-                this.setupProxy();
-            };
-            document.getElementById('disable-proxy').onclick = () => {
-                if (confirm('Disable CORS proxy? You may need a browser extension for streaming to work.')) {
-                    document.body.removeChild(overlay);
-                    this.disableProxy();
-                }
-            };
-        } else {
-            const setupProxyBtn = document.getElementById('setup-proxy-option');
-            if (setupProxyBtn) {
-                setupProxyBtn.onclick = () => {
-                    document.body.removeChild(overlay);
-                    this.restoreDefaultProxy();
-                };
-            }
-        }
+        document.getElementById('restore-proxy').onclick = () => {
+            document.body.removeChild(overlay);
+            this.restoreDefaultProxy();
+        };
 
-        document.getElementById('close-cors-options').onclick = () => {
+        document.getElementById('setup-own-proxy').onclick = () => {
+            document.body.removeChild(overlay);
+            this.setupOwnProxy();
+        };
+
+        document.getElementById('close-proxy-settings').onclick = () => {
             document.body.removeChild(overlay);
         };
 
@@ -4286,26 +4130,57 @@ class SoraApp {
             "✅ Content streaming enabled\n" +
             "✅ All origin blocking bypassed"
         );
-        this.detectCorsExtension(); // Re-test with default proxy
+        this.checkProxyConfiguration();
     }
     
-    // Advanced proxy setup for power users
-    setupProxy() {
-        const proxyOptions = [
-            "https://cloudflare-cors-anywhere.realdoomsboygaming.workers.dev/?",
-            "https://cloudflare-cors-anywhere.jmcrafter26.workers.dev/?"
-        ];
+    // Change proxy URL (simple input)
+    changeProxy() {
+        const currentProxy = localStorage.getItem("corsProxy") || "";
         
         const proxy = prompt(
-            "🔧 Advanced CORS Proxy Configuration:\n\n" +
-            "Current default: https://cloudflare-cors-anywhere.realdoomsboygaming.workers.dev/? (recommended)\n\n" +
-            "Alternative options:\n" +
-            "• https://cloudflare-cors-anywhere.jmcrafter26.workers.dev/?\n\n" +
-            "Or enter your own proxy URL:",
-            "https://cloudflare-cors-anywhere.realdoomsboygaming.workers.dev/?"
+            "🔧 Change Proxy URL:\n\n" +
+            "Enter your CORS proxy URL:",
+            currentProxy
         );
         
-        if (proxy) {
+        if (proxy !== null) {
+            if (proxy.trim() === "") {
+                // Empty input - remove proxy
+                localStorage.removeItem("corsProxy");
+                this.log("CORS proxy removed", 'info');
+                this.showMessage("Proxy Removed", "info", "CORS proxy has been removed.");
+            } else {
+                // Validate proxy URL format
+                if (!proxy.startsWith('http://') && !proxy.startsWith('https://')) {
+                    this.showMessage("Invalid Proxy", "error", "Proxy URL must start with http:// or https://");
+                    return;
+                }
+                
+                localStorage.setItem("corsProxy", proxy);
+                this.log(`🔗 Proxy URL changed: ${proxy}`, 'success');
+                this.showMessage("Proxy Updated", "success", `🔧 Proxy URL updated!\n${proxy}`);
+            }
+            this.checkProxyConfiguration();
+        }
+    }
+
+    // Setup your own cloudflare-cors-anywhere worker
+    setupOwnProxy() {
+        const instructions = `🚀 Setup Your Own Cloudflare CORS Proxy
+
+1. Go to https://workers.cloudflare.com/
+2. Create a new Worker
+3. Replace the default code with the cloudflare-cors-anywhere code from:
+   https://github.com/realdoomsboygaming/cloudflare-cors-anywhere
+
+4. Deploy your worker
+5. Your proxy URL will be: https://your-worker-name.your-subdomain.workers.dev/?
+
+Enter your deployed worker URL below:`;
+
+        const proxy = prompt(instructions, "https://your-worker-name.your-subdomain.workers.dev/?");
+        
+        if (proxy && proxy !== "https://your-worker-name.your-subdomain.workers.dev/?") {
             // Validate proxy URL format
             if (!proxy.startsWith('http://') && !proxy.startsWith('https://')) {
                 this.showMessage("Invalid Proxy", "error", "Proxy URL must start with http:// or https://");
@@ -4313,21 +4188,15 @@ class SoraApp {
             }
             
             localStorage.setItem("corsProxy", proxy);
-            this.log(`🔗 Advanced CORS proxy configured: ${proxy}`, 'success');
-            this.log('✅ Custom proxy enabled - testing compatibility...', 'success');
-            this.showMessage("Custom Proxy Configured", "success", 
-                `🔧 Custom CORS proxy set up!\n${proxy}\n\nUse "Test Content Access" to verify compatibility.`
+            this.log(`🔗 Custom worker proxy configured: ${proxy}`, 'success');
+            this.showMessage("Custom Worker Setup", "success", 
+                `⚡ Your own proxy configured!\n${proxy}\n\n✅ You now have full control over your CORS proxy.`
             );
-            this.detectCorsExtension(); // Re-test with custom proxy
+            this.checkProxyConfiguration();
         }
     }
 
-    disableProxy() {
-        localStorage.removeItem("corsProxy");
-        this.log("CORS proxy disabled", 'info');
-        this.showMessage("Proxy Disabled", "info", "CORS proxy has been removed.");
-        this.detectCorsExtension(); // Re-test without proxy
-    }
+
 
     // Cleanup method
     destroy() {

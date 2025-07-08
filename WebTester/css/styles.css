@@ -203,6 +203,7 @@ body {
 .header-right {
     display: flex; 
     align-items: center;
+    gap: 1rem;
 }
 
 .status-indicator {
@@ -218,6 +219,55 @@ body {
     border-radius: 50%;
     background: var(--accent-green);
     animation: pulse 2s infinite;
+}
+
+/* Proxy Controls */
+.proxy-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.proxy-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: var(--netflix-white);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    backdrop-filter: blur(10px);
+}
+
+.proxy-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.proxy-btn.secondary {
+    padding: 0.5rem;
+    min-width: auto;
+}
+
+.proxy-btn.secondary .proxy-text {
+    display: none;
+}
+
+.proxy-icon {
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.proxy-text {
+    font-size: 0.85rem;
+    white-space: nowrap;
 }
 
 /* Hero Section */
@@ -1465,8 +1515,29 @@ body {
         gap: 1rem;
     }
     
+    .header-right {
+        gap: 0.5rem;
+    }
+    
     .nav-menu {
         display: none;
+    }
+
+    .proxy-controls {
+        gap: 0.25rem;
+    }
+
+    .proxy-btn {
+        padding: 0.4rem 0.6rem;
+        font-size: 0.8rem;
+    }
+
+    .proxy-btn .proxy-text {
+        display: none;
+    }
+
+    .proxy-btn.secondary {
+        padding: 0.4rem;
     }
     
     .content-section {

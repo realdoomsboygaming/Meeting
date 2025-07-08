@@ -7,7 +7,6 @@
     
     <!-- Preload critical resources -->
     <link rel="preload" href="./css/styles.css" as="style">
-    <link rel="preload" href="./js/sora-app.js" as="script">
     
     <!-- External CSS for better caching and separation of concerns -->
     <link rel="stylesheet" href="./css/styles.css">
@@ -114,8 +113,8 @@
         }
     </style>
     
-    <!-- Module Manager -->
-    <script src="./js/module-manager.js" defer></script>
+    <!-- Enhanced Module System - New Architecture -->
+    <script type="module" src="./js/app-initializer.js" defer></script>
     
     <!-- SEO and Meta Tags -->
     <meta name="author" content="Sora Streaming Hub">
@@ -159,6 +158,15 @@
                 <div class="status-indicator">
                     <span class="status-dot" id="connection-status"></span>
                     <span class="status-text">Ready</span>
+                </div>
+                <div class="proxy-controls">
+                    <button id="proxy-test-btn" class="proxy-btn" title="Test CORS Proxy">
+                        <span class="proxy-icon">🧪</span>
+                        <span class="proxy-text">Test Proxy</span>
+                    </button>
+                    <button id="proxy-settings-btn" class="proxy-btn secondary" title="Proxy Settings">
+                        <span class="proxy-icon">⚙️</span>
+                    </button>
                 </div>
             </div>
         </header>
@@ -468,8 +476,27 @@
     <!-- Optional: HLS.js for advanced streaming support -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
-    <!-- Main Application Script -->
-    <script src="./js/sora-app.js" defer></script>
+    <!-- Application System Initialized via app-initializer.js -->
+    <!-- Error handling and performance monitoring only -->
+    <script>
+        // Global error handling
+        window.addEventListener('unhandledrejection', (event) => {
+            console.error('Unhandled promise rejection:', event.reason);
+            if (window.app && window.app.log) {
+                window.app.log(`Unhandled error: ${event.reason}`, 'error');
+            }
+        });
+
+        window.addEventListener('error', (event) => {
+            // Only log meaningful errors, ignore null/undefined errors
+            if (event.error && event.error.message) {
+                console.error('Global error:', event.error);
+                if (window.app && window.app.log) {
+                    window.app.log(`Global error: ${event.error.message}`, 'error');
+                }
+            }
+        });
+    </script>
 
 </body>
 </html> 
