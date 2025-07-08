@@ -1922,14 +1922,37 @@ class SoraApp {
             const videoHeaders = { ...this.getStreamHeaders(streamUrl), ...customHeaders };
             this.log(`Blob method using headers: ${Object.keys(videoHeaders).join(', ')}`, 'info');
             
-            const videoResponse = await fetch(streamUrl, {
-                method: 'GET',
-                headers: videoHeaders,
-                mode: 'cors'
-            });
+            // Check if CORS proxy is configured and use soraFetch instead
+            const corsProxy = localStorage.getItem("corsProxy");
+            let videoResponse;
+            
+            if (corsProxy) {
+                this.log('Using CORS proxy for stream fetch with module headers', 'info');
+                // Use soraFetch to properly handle CORS proxy with headers
+                const responseData = await this.soraFetch(streamUrl, {
+                    method: 'GET',
+                    headers: videoHeaders,
+                    responseType: 'arraybuffer'
+                });
+                
+                // Convert arraybuffer to blob for video player
+                const blob = new Blob([responseData], { type: this.getVideoMimeType(streamUrl) });
+                videoResponse = {
+                    ok: true,
+                    status: 200,
+                    blob: () => Promise.resolve(blob)
+                };
+            } else {
+                // Use regular fetch when no CORS proxy
+                videoResponse = await fetch(streamUrl, {
+                    method: 'GET',
+                    headers: videoHeaders,
+                    mode: 'cors'
+                });
 
-            if (!videoResponse.ok) {
-                throw new Error(`HTTP ${videoResponse.status}: ${videoResponse.statusText}`);
+                if (!videoResponse.ok) {
+                    throw new Error(`HTTP ${videoResponse.status}: ${videoResponse.statusText}`);
+                }
             }
 
             const videoBlob = await videoResponse.blob();
@@ -1942,16 +1965,29 @@ class SoraApp {
             if (subsUrl) {
                 try {
                     const subsHeaders = { ...this.getStreamHeaders(subsUrl), ...customHeaders };
-                    const subsResponse = await fetch(subsUrl, {
-                        method: 'GET',
-                        headers: subsHeaders,
-                        mode: 'cors'
-                    });
-
-                    if (subsResponse.ok) {
-                        const subsBlobData = await subsResponse.blob();
+                    
+                    if (corsProxy) {
+                        this.log('Using CORS proxy for subtitle fetch with module headers', 'info');
+                        const subsText = await this.soraFetch(subsUrl, {
+                            method: 'GET',
+                            headers: subsHeaders
+                        });
+                        
+                        const subsBlobData = new Blob([subsText], { type: 'text/vtt' });
                         subsBlob = URL.createObjectURL(subsBlobData);
-                        this.log('Subtitles blob created successfully', 'success');
+                        this.log('Subtitles blob created successfully via CORS proxy', 'success');
+                    } else {
+                        const subsResponse = await fetch(subsUrl, {
+                            method: 'GET',
+                            headers: subsHeaders,
+                            mode: 'cors'
+                        });
+
+                        if (subsResponse.ok) {
+                            const subsBlobData = await subsResponse.blob();
+                            subsBlob = URL.createObjectURL(subsBlobData);
+                            this.log('Subtitles blob created successfully', 'success');
+                        }
                     }
                 } catch (subsError) {
                     this.log(`Subtitles loading failed: ${subsError.message}`, 'warning');
@@ -2223,17 +2259,25 @@ class SoraApp {
     }
 
     getStreamHeaders(url) {
-        // Determine base domain for referer
-        let referer = 'https://oppai.stream/';
+        // Determine base domain for referer from module config
+        let referer = 'https://oppai.stream/'; // Default fallback
         
         // Extract base domain from module config if available
-        if (this.moduleConfig && this.moduleConfig.searchBaseUrl) {
-            try {
-                const baseUrl = new URL(this.moduleConfig.searchBaseUrl);
-                referer = `${baseUrl.protocol}//${baseUrl.hostname}/`;
-            } catch (e) {
-                // Use default if parsing fails
+        if (this.moduleConfig) {
+            const baseUrlSource = this.moduleConfig.baseUrl || this.moduleConfig.searchBaseUrl;
+            if (baseUrlSource) {
+                try {
+                    const baseUrl = new URL(baseUrlSource);
+                    referer = `${baseUrl.protocol}//${baseUrl.hostname}/`;
+                    this.log(`Using module baseUrl for referer: ${referer}`, 'info');
+                } catch (e) {
+                    this.log(`Failed to parse module baseUrl: ${baseUrlSource}`, 'warning');
+                }
+            } else {
+                this.log('No baseUrl found in module config, using default referer', 'warning');
             }
+        } else {
+            this.log('No module config available, using default referer', 'warning');
         }
 
         // Standard headers for stream validation
@@ -3399,6 +3443,13 @@ class SoraApp {
             const xhr = new XMLHttpRequest();
             const method = options.method || "GET";
             
+            // Set response type for binary data (video/audio files)
+            if (options.responseType) {
+                xhr.responseType = options.responseType;
+            } else if (url.match(/\.(mp4|webm|m4v|mov|avi|mkv|mp3|m4a|ogg)$/i)) {
+                xhr.responseType = 'arraybuffer';
+            }
+            
             // Clean up proxy URL patterns like in working Sora implementation
             if (url.startsWith("https://cloudflare-cors-anywhere.jmcrafter26.workers.dev/?")) {
                 url = url.replace("https://cloudflare-cors-anywhere.jmcrafter26.workers.dev/?", "");
@@ -3409,11 +3460,16 @@ class SoraApp {
             xhr.open(method, finalUrl, true);
             
             this.log(`CORS Fetch: ${method} ${finalUrl}`, 'info');
+            this.log(`Headers to apply: ${options.headers ? Object.keys(options.headers).join(', ') : 'none'}`, 'info');
             
-            // Apply headers if provided
+            // Apply headers if provided - these are the module's headers including baseUrl referer
             if (options.headers && typeof options.headers === 'object') {
                 Object.keys(options.headers).forEach(key => {
                     try {
+                        // Special handling for critical headers
+                        if (key.toLowerCase() === 'referer') {
+                            this.log(`Setting Referer header to: ${options.headers[key]}`, 'info');
+                        }
                         xhr.setRequestHeader(key, options.headers[key]);
                     } catch (error) {
                         this.log(`Failed to set header ${key}: ${error.message}`, 'warning');
@@ -3424,7 +3480,13 @@ class SoraApp {
             xhr.onload = () => {
                 if (xhr.status >= 200 && xhr.status < 300) {
                     this.log(`CORS Response Status: ${xhr.status}`, 'info');
-                    resolve(xhr.responseText);
+                    // Return appropriate response based on response type
+                    if (xhr.responseType === 'arraybuffer') {
+                        this.log('Returning binary response (arraybuffer)', 'info');
+                        resolve(xhr.response);
+                    } else {
+                        resolve(xhr.responseText);
+                    }
                 } else {
                     this.log(`CORS Error: ${xhr.status} ${xhr.statusText}`, 'error');
                     if (xhr.status === 0) {
