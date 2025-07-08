@@ -1667,26 +1667,41 @@ class SoraApp {
                 return;
             }
             
-            // For direct video files, try fetch with proper headers first
-            const videoHeaders = { ...this.getStreamHeaders(streamUrl), ...customHeaders };
-            this.log(`Loading direct video with headers: ${Object.keys(videoHeaders).join(', ')}`, 'info');
+            // Check if CORS proxy is configured - if so, always use blob method
+            const corsProxy = localStorage.getItem("corsProxy");
             
-            try {
-                const videoResponse = await fetch(streamUrl, {
-                    method: 'HEAD', // Just check if accessible
-                    headers: videoHeaders,
-                    mode: 'cors'
-                });
-
-                if (videoResponse.ok) {
-                    this.log('Stream accessible with headers, loading via Plyr', 'success');
-                    await this.loadPlyrDirectStream(streamUrl, subsUrl, title, customHeaders);
-                } else {
-                    throw new Error(`HTTP ${videoResponse.status}: ${videoResponse.statusText}`);
-                }
-            } catch (fetchError) {
-                this.log(`Headers fetch failed: ${fetchError.message}, trying blob method`, 'warning');
+            this.log(`=== CORS PROXY DEBUG ===`, 'info');
+            this.log(`CORS Proxy from localStorage: "${corsProxy}"`, 'info');
+            this.log(`Stream URL to load: ${streamUrl}`, 'info');
+            this.log(`Custom headers: ${JSON.stringify(customHeaders)}`, 'info');
+            
+            if (corsProxy && corsProxy.trim() !== "") {
+                this.log('✅ CORS proxy detected - using blob method to ensure headers are properly forwarded', 'info');
+                this.log(`Will fetch via proxy: ${corsProxy}${streamUrl}`, 'info');
                 await this.loadPlyrBlobStream(streamUrl, subsUrl, title, customHeaders);
+            } else {
+                this.log('❌ No CORS proxy configured - using direct method', 'warning');
+                // For direct video files without CORS proxy, try fetch with proper headers first
+                const videoHeaders = { ...this.getStreamHeaders(streamUrl), ...customHeaders };
+                this.log(`Loading direct video with headers: ${Object.keys(videoHeaders).join(', ')}`, 'info');
+                
+                try {
+                    const videoResponse = await fetch(streamUrl, {
+                        method: 'HEAD', // Just check if accessible
+                        headers: videoHeaders,
+                        mode: 'cors'
+                    });
+
+                    if (videoResponse.ok) {
+                        this.log('Stream accessible with headers, loading via Plyr', 'success');
+                        await this.loadPlyrDirectStream(streamUrl, subsUrl, title, customHeaders);
+                    } else {
+                        throw new Error(`HTTP ${videoResponse.status}: ${videoResponse.statusText}`);
+                    }
+                } catch (fetchError) {
+                    this.log(`Headers fetch failed: ${fetchError.message}, trying blob method`, 'warning');
+                    await this.loadPlyrBlobStream(streamUrl, subsUrl, title, customHeaders);
+                }
             }
 
         } catch (error) {
@@ -1917,23 +1932,29 @@ class SoraApp {
 
     async loadPlyrBlobStream(streamUrl, subsUrl, title, customHeaders = {}) {
         try {
-            this.log('Loading stream via blob method', 'info');
+            this.log('=== BLOB STREAM LOADING ===', 'info');
+            this.log(`🎯 loadPlyrBlobStream called for: ${streamUrl}`, 'info');
             
             const videoHeaders = { ...this.getStreamHeaders(streamUrl), ...customHeaders };
-            this.log(`Blob method using headers: ${Object.keys(videoHeaders).join(', ')}`, 'info');
+            this.log(`📋 Blob method using headers: ${Object.keys(videoHeaders).join(', ')}`, 'info');
+            this.log(`📋 Full headers: ${JSON.stringify(videoHeaders, null, 2)}`, 'info');
             
             // Check if CORS proxy is configured and use soraFetch instead
             const corsProxy = localStorage.getItem("corsProxy");
+            this.log(`🔍 CORS proxy check in blob method: "${corsProxy}"`, 'info');
             let videoResponse;
             
             if (corsProxy) {
-                this.log('Using CORS proxy for stream fetch with module headers', 'info');
+                this.log('✅ Using CORS proxy for stream fetch with module headers', 'info');
+                this.log(`🌐 About to call soraFetch with URL: ${streamUrl}`, 'info');
+                this.log(`🌐 Final proxy URL will be: ${corsProxy}${streamUrl}`, 'info');
                 // Use soraFetch to properly handle CORS proxy with headers
                 const responseData = await this.soraFetch(streamUrl, {
                     method: 'GET',
                     headers: videoHeaders,
                     responseType: 'arraybuffer'
                 });
+                this.log(`✅ soraFetch completed successfully`, 'info');
                 
                 // Convert arraybuffer to blob for video player
                 const blob = new Blob([responseData], { type: this.getVideoMimeType(streamUrl) });
@@ -1996,6 +2017,8 @@ class SoraApp {
 
             // Set video source using Plyr API with blob URL
             if (this.player) {
+                this.log(`🎬 Setting Plyr source to blob URL: ${blobUrl}`, 'info');
+                this.log(`⚠️  Original stream URL should NOT appear in network requests: ${streamUrl}`, 'warning');
                 this.player.source = {
                     type: 'video',
                     title: title,
@@ -2011,6 +2034,7 @@ class SoraApp {
                         default: true
                     }] : []
                 };
+                this.log(`✅ Plyr source set successfully to blob URL`, 'success');
             } else {
                 // Fallback to basic video if Plyr not available
                 this.elements.videoPlayer.src = blobUrl;
@@ -3459,8 +3483,13 @@ class SoraApp {
             const finalUrl = corsProxy + url;
             xhr.open(method, finalUrl, true);
             
-            this.log(`CORS Fetch: ${method} ${finalUrl}`, 'info');
-            this.log(`Headers to apply: ${options.headers ? Object.keys(options.headers).join(', ') : 'none'}`, 'info');
+            this.log(`🚀 CORS Fetch: ${method} ${finalUrl}`, 'info');
+            this.log(`📡 Original URL: ${url}`, 'info');
+            this.log(`🔗 CORS Proxy: ${corsProxy}`, 'info');
+            this.log(`📨 Headers to apply: ${options.headers ? Object.keys(options.headers).join(', ') : 'none'}`, 'info');
+            if (options.headers) {
+                this.log(`📨 Full headers: ${JSON.stringify(options.headers, null, 2)}`, 'info');
+            }
             
             // Apply headers if provided - these are the module's headers including baseUrl referer
             if (options.headers && typeof options.headers === 'object') {
@@ -3950,37 +3979,15 @@ class SoraApp {
                 this.log(`Selected subtitles: ${subtitles.url}`, 'info');
             }
             
-            // Use official Plyr .source setter (following documentation)
-            const plyrSource = {
-                type: 'video',
-                title: stream.title || 'Video Stream',
-                sources: [{
-                    src: stream.url,
-                    type: this.getVideoMimeType(stream.url),
-                    size: stream.quality || 720
-                }]
-            };
-            
-            // Add subtitles if available
-            if (subtitles) {
-                plyrSource.tracks = [{
-                    kind: 'captions',
-                    label: subtitles.label || 'English',
-                    srclang: subtitles.language || 'en',
-                    src: subtitles.url,
-                    default: true
-                }];
-            }
-            
-            this.log(`Plyr source object: ${JSON.stringify(plyrSource)}`, 'info');
-            
-            // Set source using official Plyr API
-            this.log('Setting Plyr source...', 'info');
-            this.player.source = plyrSource;
-            this.log('Plyr source set successfully', 'success');
-            
-            // Show player content
-            this.showPlayerContent(stream.title || 'Video Stream', stream.url);
+            // Use displayStream method to ensure CORS proxy handling
+            this.log('🔗 Using displayStream method for CORS proxy support...', 'info');
+            await this.displayStream(
+                stream.url, 
+                subtitles?.url, 
+                stream.title || 'Video Stream', 
+                stream.headers || {}
+            );
+            this.log('✅ Stream displayed through CORS proxy pipeline', 'success');
             
             // Remove loading indicator
             const loadingDiv = this.elements.streamDiv.querySelector('.stream-loading');
