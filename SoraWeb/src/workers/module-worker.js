@@ -248,27 +248,42 @@ async function handleStreamUrl(url) {
     
     // Apply CORS proxy to stream URLs
     if (typeof rawStreamUrl === 'string') {
-        const finalUrl = corsProxyUrl ? `${corsProxyUrl}${rawStreamUrl}` : rawStreamUrl;
+        const finalUrl = corsProxyUrl ? `${corsProxyUrl}${encodeURIComponent(rawStreamUrl)}` : rawStreamUrl;
         return { url: finalUrl };
     } else if (rawStreamUrl && typeof rawStreamUrl === 'object') {
-        // Handle qualities array
-        if (Array.isArray(rawStreamUrl.qualities)) {
-            rawStreamUrl.qualities = rawStreamUrl.qualities.map(q => ({
-                ...q,
-                url: corsProxyUrl ? `${corsProxyUrl}${q.url}` : q.url
-            }));
+        // Handle stream object with qualities and subtitles
+        const processedStreamUrl = { ...rawStreamUrl };
+        
+        if (corsProxyUrl) {
+            // Handle streams array
+            if (Array.isArray(processedStreamUrl.streams)) {
+                processedStreamUrl.streams = processedStreamUrl.streams.map(stream => 
+                    typeof stream === 'string' ? encodeURIComponent(stream) : stream
+                );
+            }
+            
+            // Handle qualities array
+            if (Array.isArray(processedStreamUrl.qualities)) {
+                processedStreamUrl.qualities = processedStreamUrl.qualities.map(quality => ({
+                    ...quality,
+                    url: encodeURIComponent(quality.url)
+                }));
+            }
+            
+            // Handle subtitles
+            if (processedStreamUrl.subtitles) {
+                processedStreamUrl.subtitles = encodeURIComponent(processedStreamUrl.subtitles);
+            }
+            
+            // Convert the entire object to a JSON string and encode it
+            const encodedJson = encodeURIComponent(JSON.stringify(processedStreamUrl));
+            return { url: `${corsProxyUrl}${encodedJson}` };
         }
-        // Handle single URL
-        if (rawStreamUrl.url) {
-            rawStreamUrl.url = corsProxyUrl ? `${corsProxyUrl}${rawStreamUrl.url}` : rawStreamUrl.url;
-        }
-        // Handle default URL
-        if (rawStreamUrl.default) {
-            rawStreamUrl.default = corsProxyUrl ? `${corsProxyUrl}${rawStreamUrl.default}` : rawStreamUrl.default;
-        }
-        return rawStreamUrl;
+        
+        return processedStreamUrl;
     }
-    return rawStreamUrl;
+    
+    throw new Error('Module returned an invalid stream URL format');
 }
 
 /**
