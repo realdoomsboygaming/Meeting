@@ -1,0 +1,12 @@
+{
+  "name": "Sora - Media Streaming",
+  "short_name": "Sora",
+  "description": "Modern web media streaming application",
+  "theme_color": "#000000",
+  "background_color": "#000000",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "start_url": "/",
+  "categories": ["entertainment", "multimedia"]
+} 

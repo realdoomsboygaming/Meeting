@@ -1,0 +1,349 @@
+/* Settings Shared Design System
+ * Standardized CSS patterns for all settings components
+ * Based on main SettingsView.vue patterns for consistency
+ */
+
+/* Container & Layout Patterns */
+.settings-page {
+  padding: 1rem;
+  max-width: 800px;
+  min-height: 100vh;
+  background: var(--background-primary);
+}
+
+/* Navigation Header (Back Button) */
+.settings-navigation-header {
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+}
+
+.settings-back-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--accent-color);
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0.75rem 0;
+  transition: opacity 0.2s ease;
+  text-decoration: none;
+}
+
+.settings-back-button:hover {
+  opacity: 0.7;
+}
+
+.settings-back-button i {
+  font-size: 1.2rem;
+}
+
+/* Page Header */
+.settings-page-header {
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.settings-page-header h2 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-page-header p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+/* Category Structure */
+.settings-category {
+  margin-bottom: 2rem;
+}
+
+.settings-category:last-child {
+  margin-bottom: 0;
+}
+
+.category-title {
+  margin: 0 0 1rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  padding: 0 0.25rem;
+}
+
+/* Card Structure */
+.settings-card {
+  background: var(--background-secondary);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Row Structure */
+.settings-row {
+  display: flex;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  min-height: 60px;
+}
+
+.settings-row:hover {
+  background: var(--background-tertiary);
+}
+
+.settings-row:active {
+  background: var(--background-quaternary);
+}
+
+/* Row Elements */
+.settings-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--accent-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1rem;
+  margin-right: 1rem;
+  flex-shrink: 0;
+}
+
+.settings-label {
+  flex: 1;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.settings-arrow {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 0.875rem;
+  margin-left: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Visual Dividers */
+.settings-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 0 1.25rem;
+}
+
+/* Form-Style Rows (for settings items with controls) */
+.settings-form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  min-height: 60px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.settings-form-row:last-child {
+  border-bottom: none;
+}
+
+.settings-form-row .settings-label {
+  margin-right: 1rem;
+}
+
+/* Toggle/Switch Controls */
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.settings-toggle input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--accent-color);
+}
+
+.settings-toggle span {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* Dropdown/Select Controls */
+.settings-select {
+  min-width: 140px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--background-primary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.settings-select:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.2);
+}
+
+/* Action Buttons */
+.settings-action-button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.settings-action-button.primary {
+  background: var(--accent-color);
+  color: #fff;
+}
+
+.settings-action-button.primary:hover {
+  background: var(--accent-color-dark);
+}
+
+.settings-action-button.secondary {
+  background: var(--background-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.settings-action-button.secondary:hover {
+  background: var(--background-quaternary);
+}
+
+.settings-action-button.danger {
+  background: #dc3545;
+  color: #fff;
+}
+
+.settings-action-button.danger:hover {
+  background: #c82333;
+}
+
+.settings-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Icon System (consistent with main SettingsView) */
+.icon-chevron-left::before { content: '‹'; }
+.icon-chevron-right::before { content: '›'; }
+.icon-settings::before { content: '⚙️'; }
+.icon-play-circle::before { content: '▶️'; }
+.icon-stack::before { content: '📚'; }
+.icon-cube::before { content: '📦'; }
+.icon-folder::before { content: '📁'; }
+.icon-document::before { content: '📄'; }
+.icon-refresh::before { content: '🔄'; }
+.icon-info-circle::before { content: 'ℹ️'; }
+.icon-alert-circle::before { content: '⚠️'; }
+.icon-upload::before { content: '⬆️'; }
+.icon-download::before { content: '⬇️'; }
+.icon-external-link::before { content: '🔗'; }
+
+/* Fix for slanted/italic icon appearance */
+[class*="icon-"]::before,
+[class^="icon-"]::before {
+  font-style: normal !important;
+  font-weight: normal !important;
+  font-variant: normal !important;
+  text-transform: none !important;
+  line-height: 1 !important;
+  display: inline-block !important;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .settings-page {
+    padding: 0.75rem;
+  }
+  
+  .settings-page-header h2 {
+    font-size: 1.5rem;
+  }
+  
+  .settings-row {
+    padding: 0.875rem 1rem;
+    min-height: 56px;
+  }
+  
+  .settings-form-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem;
+  }
+  
+  .settings-form-row .settings-label {
+    margin-right: 0;
+    margin-bottom: 0.5rem;
+  }
+  
+  .settings-select {
+    width: 100%;
+  }
+  
+  .settings-divider {
+    margin: 0 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .settings-row {
+    padding: 0.75rem;
+    min-height: 52px;
+  }
+  
+  .settings-icon {
+    width: 28px;
+    height: 28px;
+    margin-right: 0.75rem;
+  }
+  
+  .settings-label {
+    font-size: 0.95rem;
+  }
+  
+  .category-title {
+    font-size: 0.8rem;
+  }
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  .settings-card {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+} 
