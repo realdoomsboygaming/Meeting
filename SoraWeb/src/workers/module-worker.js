@@ -255,14 +255,25 @@ async function handleStreamUrl(url) {
         const processedStreamUrl = { ...rawStreamUrl };
         
         if (corsProxyUrl) {
-            // Handle streams array
+            // Handle streams array with types (SUB/DUB)
             if (Array.isArray(processedStreamUrl.streams)) {
-                processedStreamUrl.streams = processedStreamUrl.streams.map(stream => 
-                    typeof stream === 'string' ? encodeURIComponent(stream) : stream
-                );
+                const streams = [];
+                for (let i = 0; i < processedStreamUrl.streams.length; i += 2) {
+                    const type = processedStreamUrl.streams[i];
+                    const url = processedStreamUrl.streams[i + 1];
+                    if (type && url) {
+                        streams.push({
+                            type,
+                            url: encodeURIComponent(url),
+                            label: `${type} Stream`
+                        });
+                    }
+                }
+                processedStreamUrl.qualities = streams;
+                delete processedStreamUrl.streams;
             }
             
-            // Handle qualities array
+            // Handle existing qualities array
             if (Array.isArray(processedStreamUrl.qualities)) {
                 processedStreamUrl.qualities = processedStreamUrl.qualities.map(quality => ({
                     ...quality,
@@ -272,7 +283,11 @@ async function handleStreamUrl(url) {
             
             // Handle subtitles
             if (processedStreamUrl.subtitles) {
-                processedStreamUrl.subtitles = encodeURIComponent(processedStreamUrl.subtitles);
+                processedStreamUrl.subtitles = [{
+                    url: encodeURIComponent(processedStreamUrl.subtitles),
+                    label: 'English',
+                    srclang: 'en'
+                }];
             }
             
             // Convert the entire object to a JSON string and encode it

@@ -242,6 +242,14 @@
         </div>
       </div>
     </div>
+    
+    <!-- Stream Selector -->
+    <stream-selector
+      v-if="showStreamSelector"
+      :show="showStreamSelector"
+      :streams="availableStreams"
+      @play="onStreamSelected"
+    />
     <div>{{ heroImageUrl }}</div>
   </div>
 </template>
@@ -255,11 +263,13 @@ import Logger from '@/utils/Logger';
 import EpisodeItem from './EpisodeItem.vue';
 import TMDBService from '@/services/TMDBService';
 import slugify from '@/utils/slugify'
+import StreamSelector from '@/components/StreamSelector.vue'
 
 export default {
   name: 'MediaInfoView',
   components: {
     EpisodeItem,
+    StreamSelector,
   },
   setup() {
     const route = useRoute();
@@ -296,6 +306,11 @@ export default {
     // Data containers
     const episodesData = ref([])
     const chaptersData = ref([])
+    
+    // Stream selection modal state
+    const showStreamSelector = ref(false)
+    const availableStreams = ref([])
+    const selectedEpisode = ref(null)
 
     // Configuration
     const chunkSize = ref(50)
@@ -481,16 +496,97 @@ export default {
       // In real app, would save to library store
     }
 
-    const playEpisode = (episode) => {
-      Logger.info(`Playing episode: ${episode.title}`, episode);
-      // Navigate to player view with correct params
-      router.push({ 
-        name: 'Player', 
-        params: { 
-          mediaId: mediaData.value.id, // This is now the slug
-          episodeId: episode.id 
+    const playEpisode = async (episode) => {
+      try {
+        const streamInfo = await moduleStore.extractStreamUrl(episode.href)
+        if (streamInfo) {
+          console.log('[DEBUG] streamInfo:', streamInfo)
+          if (Array.isArray(streamInfo.qualities) && streamInfo.qualities.length > 0) {
+            availableStreams.value = streamInfo.qualities.map(q => ({
+              ...q,
+              url: decodeURIComponent(q.url)
+            }))
+            console.log('[DEBUG] availableStreams from qualities:', availableStreams.value)
+          } else if (Array.isArray(streamInfo.streams) && streamInfo.streams.length > 0) {
+            // Convert alternating [type, url, type, url] array
+            const streamsArr = []
+            for (let i = 0; i < streamInfo.streams.length; i += 2) {
+              const type = streamInfo.streams[i]
+              const urlStr = streamInfo.streams[i + 1]
+              if (type && urlStr) {
+                streamsArr.push({
+                  type,
+                  url: decodeURIComponent(urlStr),
+                  label: `${type} Stream`
+                })
+              }
+            }
+            availableStreams.value = streamsArr
+            console.log('[DEBUG] availableStreams from streams:', availableStreams.value)
+          } else if (streamInfo.url) {
+            let urlStr = streamInfo.url
+            // If the url is a JSON-encoded string (from worker), decode and parse it
+            try {
+              // Try to decode as JSON if it looks like an encoded object
+              if (urlStr.includes('%7B') && urlStr.includes('%7D')) {
+                const encodedJson = urlStr.substring(urlStr.indexOf('%7B'))
+                const jsonStr = decodeURIComponent(encodedJson)
+                const obj = JSON.parse(jsonStr)
+                if (Array.isArray(obj.qualities) && obj.qualities.length > 0) {
+                  availableStreams.value = obj.qualities.map(q => ({
+                    ...q,
+                    url: decodeURIComponent(q.url)
+                  }))
+                  console.log('[DEBUG] availableStreams from encoded qualities:', availableStreams.value)
+                } else if (Array.isArray(obj.streams) && obj.streams.length > 0) {
+                  const streamsArr = []
+                  for (let i = 0; i < obj.streams.length; i += 2) {
+                    const type = obj.streams[i]
+                    const urlStr2 = obj.streams[i + 1]
+                    if (type && urlStr2 && !decodeURIComponent(urlStr2).endsWith('.vtt')) {
+                      streamsArr.push({
+                        type,
+                        url: decodeURIComponent(urlStr2),
+                        label: `${type} Stream`
+                      })
+                    }
+                  }
+                  availableStreams.value = streamsArr
+                  console.log('[DEBUG] availableStreams from encoded streams:', availableStreams.value)
+                } else if (obj.url) {
+                  availableStreams.value = [{ label: 'Default', url: decodeURIComponent(obj.url) }]
+                  console.log('[DEBUG] availableStreams from encoded url:', availableStreams.value)
+                }
+              }
+            } catch (e) {
+              console.warn('Failed to decode stream JSON:', e)
+            }
+
+            // Fallback if still empty
+            if (availableStreams.value.length === 0) {
+              // Only add if not a .vtt (subtitle) file
+              const decodedUrl = decodeURIComponent(urlStr)
+              if (!decodedUrl.endsWith('.vtt')) {
+                availableStreams.value = [{ label: 'Default', url: decodedUrl }]
+              } else {
+                availableStreams.value = []
+              }
+              console.log('[DEBUG] availableStreams fallback:', availableStreams.value)
+            }
+          }
+          console.log('[DEBUG] availableStreams final:', availableStreams.value)
+          
+          if (availableStreams.value.length > 0) {
+            selectedEpisode.value = episode
+            showStreamSelector.value = true
+          } else {
+            throw new Error('No playable streams found')
+          }
         }
-      });
+      } catch (error) {
+        console.error('Failed to get stream URL:', error)
+        // Show error to user
+      }
     };
 
     const readChapter = (chapter) => {
@@ -559,6 +655,28 @@ export default {
     const logDebugInfo = () => {
       showMenu.value = false
       console.log('Media Debug Info:', mediaData.value)
+    }
+
+    const onStreamSelected = (stream) => {
+      showStreamSelector.value = false
+      if (selectedEpisode.value) {
+        // Pass headers as JSON string if present
+        const query = {
+          stream: stream.url,
+          type: stream.type || 'application/x-mpegURL'
+        }
+        if (stream.headers) {
+          query.headers = encodeURIComponent(JSON.stringify(stream.headers))
+        }
+        router.push({
+          name: 'Player',
+          params: {
+            mediaId: route.params.id,
+            episodeId: selectedEpisode.value.id
+          },
+          query
+        })
+      }
     }
 
     const fetchMediaDetails = async () => {
@@ -671,7 +789,11 @@ export default {
       logDebugInfo,
       matchWithAniList,
       matchWithTMDB,
-      heroImageUrl, // <-- ensure this is returned
+      heroImageUrl,
+      showStreamSelector,
+      availableStreams,
+      selectedEpisode,
+      onStreamSelected,
     };
   },
 };
